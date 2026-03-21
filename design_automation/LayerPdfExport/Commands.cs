@@ -3,6 +3,7 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
+using System.Globalization;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 
@@ -61,12 +62,27 @@ public class Commands
         // Editor.Command is void in AutoCAD.NET 25 — verify success via output file below.
         ed.Command("._FILEDIA", "0");
 
-        // Full canvas: frame ALL model-space geometry in the active view once (all layers on).
-        // ZOOM E in AcCoreConsole often does not match the true geometric extents; -EXPORT Display
-        // then only showed part of the drawing. We set the view explicitly from unioned extents.
+        // Full canvas in model space: union all entity extents (all layers on), then PDF plot area
+        // Window with fixed WCS corners. AcCore often ignores SetCurrentView for -EXPORT Display,
+        // so the visible "canvas" was still cropped; Window pins the publish region to the box.
         ed.Command("._TILEMODE", "1");
         ed.Command("._UCS", "W");
-        ZoomViewToFullModelExtents(ed, db);
+
+        bool haveWindow = TryGetModelSpaceExtents(db, out Extents3d fullExt);
+        if (haveWindow)
+        {
+            InflateExtents(ref fullExt, marginRatio: 0.02);
+            ed.WriteMessage(
+                $"\n[LayerPdfExport] PDF plot window WCS min=({fullExt.MinPoint.X.ToString(CultureInfo.InvariantCulture)},{fullExt.MinPoint.Y.ToString(CultureInfo.InvariantCulture)}) max=({fullExt.MaxPoint.X.ToString(CultureInfo.InvariantCulture)},{fullExt.MaxPoint.Y.ToString(CultureInfo.InvariantCulture)})\n");
+        }
+        else
+        {
+            ed.WriteMessage("\n[LayerPdfExport] No model extents; ZOOM E then Display for each PDF.\n");
+            ed.Command("._ZOOM", "E");
+        }
+
+        var win1 = haveWindow ? PointToCmd(fullExt.MinPoint) : "";
+        var win2 = haveWindow ? PointToCmd(fullExt.MaxPoint) : "";
 
         foreach (var keep in layerNames)
         {
@@ -76,11 +92,11 @@ public class Commands
             if (File.Exists(pdfPath))
                 File.Delete(pdfPath);
 
-            // SendStringToExecute queues until after this command returns — zip ran with 0 PDFs.
-            // Editor.Command runs each -EXPORT to completion before we zip.
-            // AutoCAD 2025 -EXPORT PDF: format → plot area → detailed [Y/N] → file name (FILEDIA 0).
-            // Display = PDF uses the current view (set above to full model extents).
-            ed.Command("._-EXPORT", "PDF", "Display", "No", pdfPath);
+            // AutoCAD 2025 -EXPORT PDF: format → plot area → … → detailed [Y/N] → file name (FILEDIA 0).
+            if (haveWindow)
+                ed.Command("._-EXPORT", "PDF", "Window", win1, win2, "No", pdfPath);
+            else
+                ed.Command("._-EXPORT", "PDF", "Display", "No", pdfPath);
             if (!File.Exists(pdfPath))
                 ed.WriteMessage($"\n[LayerPdfExport] EXPORT did not create file for layer {keep}: {pdfPath}");
             else
@@ -101,37 +117,9 @@ public class Commands
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({pdfCount} PDF file(s) in folder).");
     }
 
-    /// <summary>
-    /// Fit the editor view to the union of all model-space entity extents (WCS XY), with a small margin.
-    /// Falls back to ZOOM E if no extents can be computed.
-    /// </summary>
-    private static void ZoomViewToFullModelExtents(Editor ed, Database db)
-    {
-        if (!TryGetModelSpaceExtents(db, out Extents3d ext))
-        {
-            ed.WriteMessage("\n[LayerPdfExport] No model extents; falling back to ZOOM EXTENTS.\n");
-            ed.Command("._ZOOM", "E");
-            return;
-        }
-
-        InflateExtents(ref ext, marginRatio: 0.02);
-
-        double w = ext.MaxPoint.X - ext.MinPoint.X;
-        double h = ext.MaxPoint.Y - ext.MinPoint.Y;
-        if (w < 1e-9)
-            w = 1.0;
-        if (h < 1e-9)
-            h = 1.0;
-
-        double cx = (ext.MinPoint.X + ext.MaxPoint.X) * 0.5;
-        double cy = (ext.MinPoint.Y + ext.MaxPoint.Y) * 0.5;
-
-        var v = ed.GetCurrentView();
-        v.CenterPoint = new Point2d(cx, cy);
-        v.Width = w;
-        v.Height = h;
-        ed.SetCurrentView(v);
-    }
+    /// <summary>WCS point as command-line "x,y" (invariant), for -EXPORT Window corners.</summary>
+    private static string PointToCmd(Point3d p) =>
+        $"{p.X.ToString(CultureInfo.InvariantCulture)},{p.Y.ToString(CultureInfo.InvariantCulture)}";
 
     private static bool TryGetModelSpaceExtents(Database db, out Extents3d ext)
     {

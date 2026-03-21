@@ -37,6 +37,32 @@ from aps_dwg_convert import (
 
 LOG = logging.getLogger("da_layer_pdf_pipeline")
 
+
+def load_aps_credentials(
+    aps_path: Path | None = None,
+    *,
+    fallback_client_id: str | None = None,
+    fallback_client_secret: str | None = None,
+) -> tuple[str, str]:
+    """
+    Resolve credentials in order:
+
+    1. ``APS_CLIENT_ID`` + ``APS_CLIENT_SECRET`` (e.g. Railway).
+    2. Optional ``fallback_client_id`` + ``fallback_client_secret`` (e.g. webapp preconfig).
+    3. ``APS_CREDENTIALS_PATH`` or ``.aps`` via ``aps_dwg_convert.load_credentials``.
+    """
+    cid = os.environ.get("APS_CLIENT_ID", "").strip()
+    sec = os.environ.get("APS_CLIENT_SECRET", "").strip()
+    if cid and sec:
+        return cid, sec
+    fc = (fallback_client_id or "").strip()
+    fs = (fallback_client_secret or "").strip()
+    if fc and fs:
+        return fc, fs
+    p = (aps_path or Path(os.environ.get("APS_CREDENTIALS_PATH", ".aps"))).expanduser().resolve()
+    return load_credentials(p)
+
+
 AUTH_URL = "https://developer.api.autodesk.com/authentication/v2/token"
 OSS_SIGNED_UPLOAD_TMPL = (
     "https://developer.api.autodesk.com/oss/v2/buckets/{bucket}/objects/{obj}/signeds3upload"
@@ -242,8 +268,14 @@ def run_pipeline(
     *,
     plugin_dll: Path | None = None,
     plugin_deps: Path | None = None,
+    aps_client_id: str | None = None,
+    aps_client_secret: str | None = None,
 ) -> None:
-    cid, sec = load_credentials(aps_path)
+    cid, sec = load_aps_credentials(
+        aps_path,
+        fallback_client_id=aps_client_id,
+        fallback_client_secret=aps_client_secret,
+    )
     token = get_da_token(cid, sec)
     bkey = bucket_key or f"da-{uuid.uuid4().hex[:20]}"
     ensure_bucket(token, bkey)

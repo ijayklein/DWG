@@ -12,6 +12,7 @@ __pycache__/
 .DS_Store
 
 # Large / generated
+layer_pdfs.zip
 *.pdf
 *.log
 output_*/

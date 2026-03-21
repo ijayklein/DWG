@@ -4,9 +4,20 @@ name: Build LayerPdfExport bundle
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:
+    paths:
+      - "design_automation/LayerPdfExport/**"
+      - ".github/workflows/build-layer-pdf-bundle.yml"
+  pull_request:
     paths:
       - "design_automation/LayerPdfExport/**"
       - ".github/workflows/build-layer-pdf-bundle.yml"
@@ -23,6 +34,15 @@ jobs:
 
       - name: dotnet build
         run: dotnet build design_automation/LayerPdfExport/LayerPdfExport.csproj -c Release
+
+      - name: Verify bundle outputs
+        shell: pwsh
+        run: |
+          $contents = "design_automation/LayerPdfExport/LayerPdfExport.bundle/Contents"
+          foreach ($f in @("LayerPdfExport.dll", "LayerPdfExport.deps.json", "run.scr")) {
+            $p = Join-Path $contents $f
+            if (-not (Test-Path $p)) { throw "Missing after build: $p" }
+          }
 
       - name: Zip bundle folder
         shell: pwsh
@@ -45,3 +65,4 @@ jobs:
         with:
           name: LayerPdfExport_bundle
           path: LayerPdfExport_bundle.zip
+          if-no-files-found: error

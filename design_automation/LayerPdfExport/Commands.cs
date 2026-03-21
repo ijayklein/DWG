@@ -1,5 +1,6 @@
 using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
@@ -55,6 +56,11 @@ public class Commands
         // Ensure all layers on first (baseline).
         SetAllLayersOffState(db, null, false);
 
+        // FILEDIA 0 so -EXPORT takes the path on the command line (no dialog).
+        PromptStatus filedia = ed.Command("._FILEDIA", "0");
+        if (filedia != PromptStatus.OK)
+            ed.WriteMessage($"\n[LayerPdfExport] Warning: FILEDIA returned {filedia}.");
+
         foreach (var keep in layerNames)
         {
             SetAllLayersOffState(db, keep, true);
@@ -63,24 +69,28 @@ public class Commands
             if (File.Exists(pdfPath))
                 File.Delete(pdfPath);
 
-            doc.SendStringToExecute("._FILEDIA\n0\n", true, false, false);
-            // Do not Thread.Sleep or Regen() here — blocks the AcCore message loop and trips DA heartbeat.
-            doc.SendStringToExecute(
-                $"._-EXPORT\nPDF\n{pdfPath}\n\n\n\n",
-                true,
-                false,
-                false);
-            ed.WriteMessage($"\n[LayerPdfExport] Queued EXPORT for layer {keep} -> {pdfPath}");
+            // SendStringToExecute queues until after this command returns — zip ran with 0 PDFs.
+            // Editor.Command runs each -EXPORT to completion before we zip.
+            // Typical -EXPORT PDF: format, file, plot area, then detailed config (No = skip extra prompts).
+            PromptStatus pr = ed.Command("._-EXPORT", "PDF", pdfPath, "Extents", "No");
+            if (pr != PromptStatus.OK)
+                ed.WriteMessage($"\n[LayerPdfExport] EXPORT failed for layer {keep}: {pr}.");
+            else
+                ed.WriteMessage($"\n[LayerPdfExport] Exported layer {keep} -> {pdfPath}");
         }
 
         SetAllLayersOffState(db, null, false);
+
+        int pdfCount = Directory.GetFiles(pdfDir, "*.pdf", SearchOption.TopDirectoryOnly).Length;
+        if (layerNames.Count > 0 && pdfCount == 0)
+            throw new InvalidOperationException(
+                "No PDFs were produced; -EXPORT did not write files (check AcCore log for extra prompts).");
 
         string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layer_pdfs.zip");
         if (File.Exists(zipPath))
             File.Delete(zipPath);
         ZipFile.CreateFromDirectory(pdfDir, zipPath);
-        var written = Directory.GetFiles(pdfDir, "*.pdf", SearchOption.TopDirectoryOnly);
-        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({written.Length} PDF file(s) in folder).");
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({pdfCount} PDF file(s) in folder).");
     }
 
     /// <summary>If <paramref name="onlyOn"/> is null, set all layers to <paramref name="off"/>; else only that layer on.</summary>

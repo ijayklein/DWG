@@ -1,5 +1,7 @@
 .aps
 LayerPdfExport_bundle.zip
+LayerPdfExport_bundle-*.zip
+LayerPdfExport_bundle_*.zip
 __pycache__/
 *.pyc
 .venv/

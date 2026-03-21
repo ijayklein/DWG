@@ -133,10 +133,11 @@ def qualified_activity(nickname: str) -> str:
 def activity_body(engine: str, nickname: str) -> dict[str, Any]:
     # Accoreconsole: path macros must be in double quotes. Build a normal Python string;
     # requests/json will escape quotes for JSON (do not use \\\" — that breaks DA validation).
+    # Load bundle (/al) before opening the DWG (/i) so the .NET module registers commands.
     cmd = (
-        '$(engine.path)\\accoreconsole.exe /i "$(args[HostDwg].path)" '
-        '/al "$(appbundles[LayerPdfExport].path)" '
-        '/s "$(appbundles[LayerPdfExport].path)Contents\\run.scr"'
+        '$(engine.path)\\accoreconsole.exe /al "$(appbundles[LayerPdfExport].path)" '
+        '/i "$(args[HostDwg].path)" '
+        '/s "$(appbundles[LayerPdfExport].path)\\Contents\\run.scr"'
     )
     return {
         "id": ACTIVITY_ID,
@@ -207,7 +208,7 @@ def create_appbundle_and_upload(
     )
     if r.status_code == 409:
         LOG.info("AppBundle %s exists; creating new version…", BUNDLE_ID)
-        r = post_json(token, f"{base}/appbundles/{BUNDLE_ID}/versions", {})
+        r = post_json(token, f"{base}/appbundles/{BUNDLE_ID}/versions", {"engine": engine})
     else:
         r.raise_for_status()
 
@@ -242,13 +243,21 @@ def ensure_appbundle_alias(
     region: str,
     version: int,
 ) -> None:
-    url = f"{da_base(region)}/appbundles/{BUNDLE_ID}/aliases"
-    post_json(
-        token,
+    base = da_base(region)
+    auth = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"{base}/appbundles/{BUNDLE_ID}/aliases"
+    r = requests.post(
         url,
-        {"id": BUNDLE_ALIAS, "version": version},
-        ok=(200, 201),
+        headers=auth,
+        json={"id": BUNDLE_ALIAS, "version": version},
+        timeout=120,
     )
+    if r.status_code == 409:
+        pu = f"{base}/appbundles/{BUNDLE_ID}/aliases/{BUNDLE_ALIAS}"
+        r = requests.patch(pu, headers=auth, json={"version": version}, timeout=120)
+        r.raise_for_status()
+    else:
+        r.raise_for_status()
     LOG.info("AppBundle alias %s → version %s", BUNDLE_ALIAS, version)
 
 
@@ -281,12 +290,21 @@ def ensure_activity(token: str, region: str, engine: str, nickname: str) -> int:
 
 
 def ensure_activity_alias(token: str, region: str, version: int) -> None:
-    post_json(
-        token,
-        f"{da_base(region)}/activities/{ACTIVITY_ID}/aliases",
-        {"id": ACTIVITY_ALIAS, "version": version},
-        ok=(200, 201),
+    base = da_base(region)
+    auth = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = f"{base}/activities/{ACTIVITY_ID}/aliases"
+    r = requests.post(
+        url,
+        headers=auth,
+        json={"id": ACTIVITY_ALIAS, "version": version},
+        timeout=120,
     )
+    if r.status_code == 409:
+        pu = f"{base}/activities/{ACTIVITY_ID}/aliases/{ACTIVITY_ALIAS}"
+        r = requests.patch(pu, headers=auth, json={"version": version}, timeout=120)
+        r.raise_for_status()
+    else:
+        r.raise_for_status()
     LOG.info("Activity alias %s → version %s", ACTIVITY_ALIAS, version)
 
 

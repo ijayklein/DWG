@@ -64,7 +64,7 @@ Body (edit YOURNICK, ENGINE, and commandLine if your bundle name differs):
 {
   "id": "LayerPdfExportActivity",
   "commandLine": [
-    "$(engine.path)\\\\accoreconsole.exe /i \\\"$(args[HostDwg].path)\\\" /al \\\"$(appbundles[LayerPdfExport].path)\\\" /s \\\"$(appbundles[LayerPdfExport].path)Contents\\\\run.scr\\\""
+    "$(engine.path)\\\\accoreconsole.exe /al \\\"$(appbundles[LayerPdfExport].path)\\\" /i \\\"$(args[HostDwg].path)\\\" /s \\\"$(appbundles[LayerPdfExport].path)\\\\Contents\\\\run.scr\\\""
   ],
   "parameters": {
     "HostDwg": {

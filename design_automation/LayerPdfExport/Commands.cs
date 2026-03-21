@@ -5,10 +5,18 @@ using System.IO.Compression;
 using System.Text.RegularExpressions;
 
 [assembly: CommandClass(typeof(LayerPdfExport.Commands))]
-[assembly: ExtensionApplication(null)]
+[assembly: ExtensionApplication(typeof(LayerPdfExport.PluginApp))]
 
 namespace LayerPdfExport
 {
+/// <summary>Registers the managed module with accoreconsole (ExtensionApplication(null) skips init).</summary>
+public class PluginApp : IExtensionApplication
+{
+    public void Initialize() { }
+
+    public void Terminate() { }
+}
+
 /// <summary>
 /// Design Automation entry: run command <c>ExportLayerPdfs</c> after the host DWG is opened.
 /// Isolates each layer (others off), runs EXPORT to PDF, zips all PDFs to <c>layer_pdfs.zip</c> in the working folder.

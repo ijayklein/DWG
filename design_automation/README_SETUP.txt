@@ -37,9 +37,9 @@ GitHub website — download the bundle artifact (step by step)
 
 6. Scroll to the bottom of the run page to the **Artifacts** section.
 
-7. Click **LayerPdfExport_bundle** to download. Your browser saves a zip; that file is the
-   bundle package used with ``da_register_batch.py --bundle-zip …`` (often named
-   ``LayerPdfExport_bundle.zip`` after download).
+7. Click **LayerPdfExport_bundle** to download. GitHub wraps the file: the download is a zip
+   whose **only entry** is ``LayerPdfExport_bundle.zip``. Extract that inner file and pass **it**
+   to ``da_register_batch.py --bundle-zip`` (not the outer wrapper zip).
 
 
 Step A — Build the bundle (pick one)

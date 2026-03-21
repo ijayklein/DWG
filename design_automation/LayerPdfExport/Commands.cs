@@ -1,6 +1,5 @@
 using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.DatabaseServices;
-using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
@@ -57,9 +56,8 @@ public class Commands
         SetAllLayersOffState(db, null, false);
 
         // FILEDIA 0 so -EXPORT takes the path on the command line (no dialog).
-        PromptStatus filedia = ed.Command("._FILEDIA", "0");
-        if (filedia != PromptStatus.OK)
-            ed.WriteMessage($"\n[LayerPdfExport] Warning: FILEDIA returned {filedia}.");
+        // Editor.Command is void in AutoCAD.NET 25 — verify success via output file below.
+        ed.Command("._FILEDIA", "0");
 
         foreach (var keep in layerNames)
         {
@@ -72,9 +70,9 @@ public class Commands
             // SendStringToExecute queues until after this command returns — zip ran with 0 PDFs.
             // Editor.Command runs each -EXPORT to completion before we zip.
             // Typical -EXPORT PDF: format, file, plot area, then detailed config (No = skip extra prompts).
-            PromptStatus pr = ed.Command("._-EXPORT", "PDF", pdfPath, "Extents", "No");
-            if (pr != PromptStatus.OK)
-                ed.WriteMessage($"\n[LayerPdfExport] EXPORT failed for layer {keep}: {pr}.");
+            ed.Command("._-EXPORT", "PDF", pdfPath, "Extents", "No");
+            if (!File.Exists(pdfPath))
+                ed.WriteMessage($"\n[LayerPdfExport] EXPORT did not create file for layer {keep}: {pdfPath}");
             else
                 ed.WriteMessage($"\n[LayerPdfExport] Exported layer {keep} -> {pdfPath}");
         }

@@ -1,5 +1,9 @@
 name: Build LayerPdfExport bundle
 
+# Node 24 for JS actions (upload-artifact etc.); see GitHub deprecation of Node 20 runners.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   workflow_dispatch:
   push:
@@ -25,9 +29,13 @@ jobs:
         run: |
           Set-Location design_automation/LayerPdfExport
           if (-not (Test-Path "LayerPdfExport.bundle/PackageContents.xml")) { throw "Bundle layout missing" }
-          Compress-Archive -Path "LayerPdfExport.bundle" -DestinationPath "../../../LayerPdfExport_bundle.zip" -Force
+          # Two levels up: LayerPdfExport -> design_automation -> repo root (../../../ was wrong: wrote outside workspace).
+          $zip = Join-Path $env:GITHUB_WORKSPACE "LayerPdfExport_bundle.zip"
+          Compress-Archive -Path "LayerPdfExport.bundle" -DestinationPath $zip -Force
+          if (-not (Test-Path $zip)) { throw "Zip was not created: $zip" }
+          Get-Item $zip | Format-List FullName, Length
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: LayerPdfExport_bundle
           path: LayerPdfExport_bundle.zip

@@ -13,6 +13,7 @@ __pycache__/
 
 # Large / generated
 layer_pdfs.zip
+*.dwg
 *.pdf
 *.log
 output_*/

@@ -4,6 +4,9 @@ using Autodesk.AutoCAD.Runtime;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 
+[assembly: CommandClass(typeof(LayerPdfExport.Commands))]
+[assembly: ExtensionApplication(null)]
+
 namespace LayerPdfExport
 {
 /// <summary>
@@ -89,6 +92,3 @@ public class Commands
         Regex.Replace(name, @"[^\w\.\-]", "_", RegexOptions.None, TimeSpan.FromSeconds(1));
 }
 }
-
-[assembly: CommandClass(typeof(LayerPdfExport.Commands))]
-[assembly: ExtensionApplication(null)]

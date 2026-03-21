@@ -10,13 +10,10 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    # Opt into Node.js 24 for actions (avoids Node 20 deprecation warnings on checkout/setup-dotnet).
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "8.0.x"
 
@@ -30,7 +27,7 @@ jobs:
           if (-not (Test-Path "LayerPdfExport.bundle/PackageContents.xml")) { throw "Bundle layout missing" }
           Compress-Archive -Path "LayerPdfExport.bundle" -DestinationPath "../../../LayerPdfExport_bundle.zip" -Force
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: LayerPdfExport_bundle
           path: LayerPdfExport_bundle.zip

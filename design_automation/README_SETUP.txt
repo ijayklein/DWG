@@ -1,99 +1,108 @@
-Layer PDF export — complete path (Design Automation + this repo)
-================================================================
+Layer PDF export — Design Automation (working setup)
+======================================================
 
-What you get
-------------
-1. design_automation/LayerPdfExport/ — C# plugin (AutoCAD 2026 API via NuGet) that runs
-   command ExportLayerPdfs: for each layer, turns other layers off, exports PDF, zips to
-   layer_pdfs.zip in the job working folder.
-2. .github/workflows/build-layer-pdf-bundle.yml — builds on GitHub’s Windows runner (no Mac
-   required). Download the “LayerPdfExport_bundle” artifact (ZIP of LayerPdfExport.bundle).
-3. da_layer_pdf_pipeline.py — uploads your DWG to OSS, runs a WorkItem, downloads the zip.
+What works (current method)
+----------------------------
+The bundle runs **AcCoreConsole** with a small **run.scr** that **NETLOAD**s the plugin DLL from
+the job folder, then invokes a C# command.
 
-You still must register the AppBundle + Activity once in your APS account. Use
-``da_register_batch.py`` (repo root, same ``.aps`` as other scripts) or the manual
-``CREATE_ACTIVITY_STEPS.txt`` curl flow.
+**Default command: `ExportAllLayoutPdfs`**
 
+• For **every paper layout tab** (everything in the layout dictionary except **Model**), the
+  plugin switches to that layout (`LAYOUT` → `S` → layout name), runs `ZOOM` → `E`, then
+  **`-EXPORT`** → **PDF** using the **Current layout** option (not Model-space Extents —
+  layout tabs use different prompts), then **No** to skip detailed plot UI, then the output path.
 
-GitHub website — download the bundle artifact (step by step)
---------------------------------------------------------------
-1. In a browser, open your repo: https://github.com/<your-account>/<repo>  (e.g. the DWG repo).
+• **All CAD layers stay on** for each export. Each layout becomes one PDF named from the layout
+  (sanitized filename), e.g. `A1.1a.pdf`, collected under `_layerpdf_out/` and zipped to
+  **`layer_pdfs.zip`** in the job folder.
 
-2. Click the **Actions** tab at the top. You see a list of **workflow runs** (each row is one
-   time a workflow ran).
+• If the drawing has **no paper layouts**, it exports **Model** once as **`model.pdf`**.
 
-3. In the left sidebar, click **“Build LayerPdfExport bundle”** (the name comes from
-   ``.github/workflows/build-layer-pdf-bundle.yml``). The center panel then shows only runs
-   of that workflow.
+**Why layouts:** The “full page” you see in AutoCAD is usually a **paper layout** (sheet +
+  viewports). Exporting **Model** alone often frames only a small crop. Per-layout export matches
+  what you see on each layout tab.
 
-4. Start a run if you need to:
-   • **Manual run:** open **“Build LayerPdfExport bundle”**, click **“Run workflow”** (right
-     side), choose branch **main**, then **“Run workflow”** again. A new run appears at the top.
-   • **Automatic run:** any push that changes files under ``design_automation/LayerPdfExport/``
-     also starts this workflow.
+**Alternate commands** (change the last line of `Contents/run.scr` or use the matching scr):
 
-5. Wait until the latest run shows a **green checkmark** (success). Click that run’s title
-   row to open the **run detail** page.
-
-6. Scroll to the bottom of the run page to the **Artifacts** section.
-
-7. Click **LayerPdfExport_bundle** to download. GitHub wraps the file: the download is a zip
-   whose **only entry** is ``LayerPdfExport_bundle.zip``. Extract that inner file and pass **it**
-   to ``da_register_batch.py --bundle-zip`` (not the outer wrapper zip).
+  `ExportFlatPdf`       — single PDF for one layout (first non-Model layout, or Model if none).
+  `ExportLayerPdfs`     — one PDF per **layer** (isolates layers; uses layout vs model logic).
 
 
-Step A — Build the bundle (pick one)
---------------------------------------
-A1) GitHub: use the steps in “GitHub website — download the bundle artifact” above, or
-    ``gh workflow run`` / ``gh run download`` from a machine with the GitHub CLI.
-A2) Windows with .NET 8 SDK:  
-    dotnet build design_automation/LayerPdfExport/LayerPdfExport.csproj -c Release  
-    The bundle folder is design_automation/LayerPdfExport/LayerPdfExport.bundle/
+Repo layout
+-----------
+• `design_automation/LayerPdfExport/` — C# plugin (AutoCAD.NET 25.x), `LayerPdfExport.bundle/`
+  with `PackageContents.xml`, `Contents/run.scr`, built DLL + deps copied on build.
+
+• `.github/workflows/build-layer-pdf-bundle.yml` — Windows CI builds the bundle; artifact
+  **LayerPdfExport_bundle** is a zip whose **only file** is **`LayerPdfExport_bundle.zip`**
+  (the inner zip is what you register — **PackageContents.xml** must be at the **root** of
+  that inner zip).
+
+• `da_register_batch.py` — registers AppBundle + Activity (same `.aps` as other tools).
+
+• `da_layer_pdf_pipeline.py` — uploads DWG + plugin files to OSS, posts WorkItem, downloads
+  **`layer_pdfs.zip`**.
+
+**NETLOAD:** AcCoreConsole often does not load the .NET 8 bundle module from `/al` alone.
+  The Activity therefore supplies **`LayerPdfExport.dll`** and **`LayerPdfExport.deps.json`**
+  into the job folder; **run.scr** NETLOADs the DLL so commands register.
 
 
-Step B — Zip the bundle for upload
+Get the bundle (GitHub)
+-------------------------
+1. Repo → **Actions** → workflow **Build LayerPdfExport bundle**.
+2. Open the latest **green** run → **Artifacts** → download **LayerPdfExport_bundle**.
+3. Unzip the outer download; take the inner **`LayerPdfExport_bundle.zip`** and pass that path
+   to `da_register_batch.py --bundle-zip` (not the outer wrapper).
+
+
+Build locally (Windows, optional)
 -----------------------------------
-The ZIP root must contain **PackageContents.xml** (not a single folder ``LayerPdfExport.bundle/``
-above it), or Design Automation fails: “package has no PackageContents.xml”. From
-``design_automation/LayerPdfExport``:
+  dotnet build design_automation/LayerPdfExport/LayerPdfExport.csproj -c Release
 
-  cd LayerPdfExport.bundle
+Zip for DA (must have **PackageContents.xml** at zip root):
+
+  cd design_automation/LayerPdfExport/LayerPdfExport.bundle
   Compress-Archive -Path * -DestinationPath ..\LayerPdfExport_bundle.zip -Force
 
 
-Step C — Register AppBundle + Activity (one-time)
--------------------------------------------------
-Use the official tutorial “Upload AppBundle” / “CreateActivity” for AutoCAD, or aps-da-cli.
+Register once (AppBundle + Activity)
+------------------------------------
+  python da_register_batch.py --bundle-zip /path/to/LayerPdfExport_bundle.zip
 
-Engine: pick an AutoCAD engine that matches the API generation you built against (this project
-uses Autodesk AutoCAD.NET 25.x NuGet → align with engine **Autodesk.AutoCAD+25_1** or the
-closest listed in GET …/da/us-east/v3/engines).
+Engine: use an AutoCAD engine that matches the NuGet (e.g. **Autodesk.AutoCAD+25_1**).
 
-Your Activity commandLine must launch accoreconsole, load this bundle, and run run.scr (which
-calls ExportLayerPdfs). Copy the pattern from Autodesk’s “UpdateDWGParam” tutorial and replace
-command names / bundle id with LayerPdfExport.
+Activity **commandLine** pattern (already in `da_register_batch.py`): **accoreconsole** `/al`
+bundle, `/i` HostDwg, `/s` … **`Contents\run.scr`**.
 
-WorkItem arguments used by da_layer_pdf_pipeline.py (must match your Activity definition):
-  HostDwg   — GET  — input drawing (urn + Bearer)
-  ResultZip — PUT  — output zip (pre-signed S3 URL + Bearer)
+WorkItem arguments (must match Activity + `da_layer_pdf_pipeline.py`):
+
+  HostDwg    — GET  — input DWG (OSS URN + Bearer)
+  PluginDll  — GET  — `LayerPdfExport.dll` (localName in job folder)
+  PluginDeps — GET  — `LayerPdfExport.deps.json`
+  ResultZip  — PUT  — `layer_pdfs.zip` (pre-signed S3 PUT URL; no Forge headers on PUT)
 
 
-Step D — Run the pipeline
--------------------------
-Set environment variable (or pass flag):
+Run the pipeline
+------------------
+  export DA_ACTIVITY_ID='YourNickname.LayerPdfExportActivity+prod'
 
-  export DA_ACTIVITY_ID='YourAPSId.LayerPdfExportActivity+prod'
+  python da_layer_pdf_pipeline.py --input your.dwg --output ./layer_pdfs.zip --aps .aps
 
-Run:
-
-  .venv/bin/python da_layer_pdf_pipeline.py --input example.dwg --output ./layer_pdfs.zip --aps .aps
-
-Same .aps client_id:secret as Model Derivative. OAuth scopes must include code:all (already
-requested by the script).
+OAuth scopes must include **code:all** (script already requests them). The pipeline uploads
+the DLL and deps from `LayerPdfExport.bundle/Contents/` by default (or `--plugin-dll` /
+`--plugin-deps`).
 
 
 Troubleshooting
 ---------------
-• WorkItem fails: open reportUrl from the error JSON; fix Activity commandLine or plugin.
-• Empty PDFs: EXPORT prompts differ by drawing; you may need PlotEngine code instead of -EXPORT.
-• Engine mismatch: rebuild against the NuGet version that matches the cloud engine, or change engine.
+• **failedDownload / failedUpload:** check OSS URIs and signed URLs; HostDwg must be reachable
+  by the worker.
+
+• **failedInstructions:** open **reportUrl** from the WorkItem JSON; look for unknown command,
+  `-EXPORT` prompt mismatches, or crashes.
+
+• **Wrong PDF framing:** ensure you are using a **layout** export for sheets; for many separate
+  floor plans **only in Model** (no extra layout tabs), you need a different pipeline (e.g.
+  region detection + separate exports), not one PDF per layout tab.

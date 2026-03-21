@@ -1,0 +1,29 @@
+Railway deploy without `railway up` timeouts
+============================================
+
+Why `railway up` times out
+---------------------------
+The CLI uploads a tarball to Railway over HTTPS. That request often has a
+short deadline (~tens of seconds). Slow networks, VPNs, or routing to Railway
+can fail even for tiny projects. This is a known limitation of the upload path.
+
+Recommended: deploy from GitHub (no CLI upload)
+------------------------------------------------
+Code is already pushed to: https://github.com/ijayklein/DWG
+
+1. Open your Railway project: https://railway.com/dashboard
+2. Select service **dwg-api** (or your connected service).
+3. Go to **Settings** → **Source** (or **Deployments** → connect repository).
+4. **Connect GitHub**, authorize if asked, choose repo **ijayklein/DWG**.
+5. Set branch **main**, root directory **/** (repo root), save.
+6. Railway will clone the repo and run **Dockerfile** builds on their servers.
+7. Add variables (Service → Variables): **DA_ACTIVITY_ID**, **APS_CLIENT_ID**,
+   **APS_CLIENT_SECRET** (see railway.env.example).
+
+After this, every `git push origin main` triggers a deploy without using
+`railway up`.
+
+Optional: retry CLI later
+-------------------------
+If you still use `railway up`, try a fast/unmetered network (no VPN), or rely on
+`.railwayignore` to keep the archive small. GitHub deploy remains more reliable.

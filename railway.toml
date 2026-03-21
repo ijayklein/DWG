@@ -1,5 +1,8 @@
 # Railway config-as-code: https://docs.railway.com/guides/config-as-code
 # Set secret values in the Railway dashboard: Service → Variables (do not commit secrets).
+#
+# If `railway up` times out, deploy from GitHub instead (clone + build on Railway).
+# See railway-github-deploy.txt
 
 [build]
 builder = "DOCKERFILE"

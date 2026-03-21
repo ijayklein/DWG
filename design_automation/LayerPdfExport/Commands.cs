@@ -59,6 +59,12 @@ public class Commands
         // Editor.Command is void in AutoCAD.NET 25 — verify success via output file below.
         ed.Command("._FILEDIA", "0");
 
+        // One fixed "full canvas" for every layer PDF: zoom to the full drawing while all layers
+        // are on, then export with plot area Display (current view). Using -EXPORT … Extents
+        // per layer reframed each PDF to that layer's tight bounds and dropped the full sheet.
+        ed.Command("._TILEMODE", "1");
+        ed.Command("._ZOOM", "E");
+
         foreach (var keep in layerNames)
         {
             SetAllLayersOffState(db, keep, true);
@@ -70,7 +76,8 @@ public class Commands
             // SendStringToExecute queues until after this command returns — zip ran with 0 PDFs.
             // Editor.Command runs each -EXPORT to completion before we zip.
             // AutoCAD 2025 -EXPORT PDF: format → plot area → detailed [Y/N] → file name (FILEDIA 0).
-            ed.Command("._-EXPORT", "PDF", "Extents", "No", pdfPath);
+            // Display = use the view from ZOOM E above; do not use Extents here or the plot recenters.
+            ed.Command("._-EXPORT", "PDF", "Display", "No", pdfPath);
             if (!File.Exists(pdfPath))
                 ed.WriteMessage($"\n[LayerPdfExport] EXPORT did not create file for layer {keep}: {pdfPath}");
             else

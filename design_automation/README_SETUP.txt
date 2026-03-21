@@ -10,14 +10,42 @@ What you get
    required). Download the “LayerPdfExport_bundle” artifact (ZIP of LayerPdfExport.bundle).
 3. da_layer_pdf_pipeline.py — uploads your DWG to OSS, runs a WorkItem, downloads the zip.
 
-You still must register the AppBundle + Activity once in your APS account (Autodesk’s
-Design Automation console / Postman / aps-da-cli). This cannot be fully automated without
-your APS nickname and engine choice.
+You still must register the AppBundle + Activity once in your APS account. Use
+``da_register_batch.py`` (repo root, same ``.aps`` as other scripts) or the manual
+``CREATE_ACTIVITY_STEPS.txt`` curl flow.
+
+
+GitHub website — download the bundle artifact (step by step)
+--------------------------------------------------------------
+1. In a browser, open your repo: https://github.com/<your-account>/<repo>  (e.g. the DWG repo).
+
+2. Click the **Actions** tab at the top. You see a list of **workflow runs** (each row is one
+   time a workflow ran).
+
+3. In the left sidebar, click **“Build LayerPdfExport bundle”** (the name comes from
+   ``.github/workflows/build-layer-pdf-bundle.yml``). The center panel then shows only runs
+   of that workflow.
+
+4. Start a run if you need to:
+   • **Manual run:** open **“Build LayerPdfExport bundle”**, click **“Run workflow”** (right
+     side), choose branch **main**, then **“Run workflow”** again. A new run appears at the top.
+   • **Automatic run:** any push that changes files under ``design_automation/LayerPdfExport/``
+     also starts this workflow.
+
+5. Wait until the latest run shows a **green checkmark** (success). Click that run’s title
+   row to open the **run detail** page.
+
+6. Scroll to the bottom of the run page to the **Artifacts** section.
+
+7. Click **LayerPdfExport_bundle** to download. Your browser saves a zip; that file is the
+   bundle package used with ``da_register_batch.py --bundle-zip …`` (often named
+   ``LayerPdfExport_bundle.zip`` after download).
 
 
 Step A — Build the bundle (pick one)
 --------------------------------------
-A1) GitHub: push this repo, open Actions → “Build LayerPdfExport bundle”, download artifact.
+A1) GitHub: use the steps in “GitHub website — download the bundle artifact” above, or
+    ``gh workflow run`` / ``gh run download`` from a machine with the GitHub CLI.
 A2) Windows with .NET 8 SDK:  
     dotnet build design_automation/LayerPdfExport/LayerPdfExport.csproj -c Release  
     The bundle folder is design_automation/LayerPdfExport/LayerPdfExport.bundle/

@@ -108,11 +108,19 @@ def complete_signed_upload(token: str, post_base: str, upload_key: str) -> None:
     r.raise_for_status()
 
 
-def download_object_bytes(token: str, bucket_key: str, object_name: str) -> bytes:
+def get_signed_s3_get_url(
+    token: str, bucket_key: str, object_name: str, *, minutes: int = 60
+) -> str:
+    """
+    Presigned S3 URL for an OSS object. Design Automation **HostDwg** must use this (or a direct
+    OSS HTTPS URL), not the ``urn:adsk.objects:…`` objectId — otherwise the worker hits
+    **failedDownload**.
+    """
     enc = quote(object_name, safe="")
     url = OSS_SIGNED_DOWNLOAD_TMPL.format(bucket=bucket_key, obj=enc)
     r = requests.get(
         url,
+        params={"minutesExpiration": minutes},
         headers={"Authorization": f"Bearer {token}"},
         timeout=120,
     )
@@ -121,6 +129,11 @@ def download_object_bytes(token: str, bucket_key: str, object_name: str) -> byte
     get_url = du.get("url") or (du.get("urls") or [None])[0]
     if not get_url:
         raise RuntimeError(f"signeds3download: {du}")
+    return get_url
+
+
+def download_object_bytes(token: str, bucket_key: str, object_name: str) -> bytes:
+    get_url = get_signed_s3_get_url(token, bucket_key, object_name)
     r2 = requests.get(get_url, timeout=600)
     r2.raise_for_status()
     return r2.content
@@ -129,25 +142,34 @@ def download_object_bytes(token: str, bucket_key: str, object_name: str) -> byte
 def create_workitem(
     token: str,
     activity_id: str,
-    host_dwg_urn: str,
+    host_dwg_get_url: str,
     output_put_url: str,
+    *,
+    host_is_presigned: bool = True,
+    output_is_presigned: bool = True,
 ) -> str:
     """
     Argument names **HostDwg** and **ResultZip** must match your registered Activity.
+
+    **HostDwg** must be a real HTTPS GET URL (presigned S3 from ``signeds3download``). Do not pass
+    the raw OSS ``objectId`` URN — that causes **failedDownload**.
+    Presigned S3 URLs must not include Forge ``Authorization`` (extra headers break the signature).
     """
     auth = f"Bearer {token}"
+    host_headers: dict[str, str] = {} if host_is_presigned else {"Authorization": auth}
+    out_headers: dict[str, str] = {} if output_is_presigned else {"Authorization": auth}
     body = {
         "activityId": activity_id,
         "arguments": {
             "HostDwg": {
-                "url": host_dwg_urn,
+                "url": host_dwg_get_url,
                 "verb": "get",
-                "headers": {"Authorization": auth},
+                **({"headers": host_headers} if host_headers else {}),
             },
             "ResultZip": {
                 "url": output_put_url,
                 "verb": "put",
-                "headers": {"Authorization": auth},
+                **({"headers": out_headers} if out_headers else {}),
             },
         },
     }
@@ -169,15 +191,21 @@ def poll_workitem(token: str, workitem_id: str, interval: float = 3.0, max_wait:
     url = f"{DA_BASE}/workitems/{quote(workitem_id, safe='')}"
     deadline = time.monotonic() + max_wait
     auth = f"Bearer {token}"
+    # Statuses still running (not exhaustive; anything else is treated as terminal).
+    in_progress = {"pending", "downloaded", "inprogress", "waitingforupload", "pendinguploads"}
     while time.monotonic() < deadline:
         r = requests.get(url, headers={"Authorization": auth}, timeout=120)
         r.raise_for_status()
         st = r.json()
         status = (st.get("status") or "").lower()
         LOG.info("WorkItem %s → %s", workitem_id, status)
-        if status in ("success", "failed", "cancelled"):
+        if status == "success":
             return st
-        time.sleep(interval)
+        if status in in_progress:
+            time.sleep(interval)
+            continue
+        # failedDownload, failedUpload, failedInstructions, failed, cancelled, unknown terminal
+        return st
     raise TimeoutError(workitem_id)
 
 
@@ -194,12 +222,20 @@ def run_pipeline(
     ensure_bucket(token, bkey)
 
     object_name = dwg_path.name
-    host_urn = upload_object(token, bkey, object_name, dwg_path)
+    upload_object(token, bkey, object_name, dwg_path)
+    host_get_url = get_signed_s3_get_url(token, bkey, object_name, minutes=90)
 
     out_name = f"{Path(object_name).stem}_layer_pdfs.zip"
     put_url, upload_key, post_base = prepare_put_url_for_new_object(token, bkey, out_name)
 
-    wid = create_workitem(token, activity_id, host_urn, put_url)
+    wid = create_workitem(
+        token,
+        activity_id,
+        host_get_url,
+        put_url,
+        host_is_presigned=True,
+        output_is_presigned=True,
+    )
     result = poll_workitem(token, wid)
     if (result.get("status") or "").lower() != "success":
         rep = result.get("reportUrl", "")

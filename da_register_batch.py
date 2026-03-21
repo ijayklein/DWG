@@ -133,7 +133,7 @@ def qualified_activity(nickname: str) -> str:
 def activity_body(engine: str, nickname: str) -> dict[str, Any]:
     # Accoreconsole: path macros must be in double quotes. Build a normal Python string;
     # requests/json will escape quotes for JSON (do not use \\\" — that breaks DA validation).
-    # Load bundle (/al) before opening the DWG (/i) so the .NET module registers commands.
+    # Load bundle (/al) before opening the DWG (/i) so the package is resolved first.
     cmd = (
         '$(engine.path)\\accoreconsole.exe /al "$(appbundles[LayerPdfExport].path)" '
         '/i "$(args[HostDwg].path)" '

@@ -20,10 +20,12 @@
       <BundleDir>$(MSBuildProjectDirectory)\LayerPdfExport.bundle\Contents\</BundleDir>
     </PropertyGroup>
     <MakeDir Directories="$(BundleDir)" />
+    <!-- Only the add-in + deps manifest; do not copy AutoCAD ref assemblies (shadows the engine). -->
     <ItemGroup>
-      <BundleFiles Include="$(OutputPath)*.dll" />
+      <BundlePrimary Include="$(OutputPath)LayerPdfExport.dll" />
+      <BundlePrimary Include="$(OutputPath)LayerPdfExport.deps.json" Condition="Exists('$(OutputPath)LayerPdfExport.deps.json')" />
     </ItemGroup>
-    <Copy SourceFiles="@(BundleFiles)" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(BundlePrimary)" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(OutputPath)run.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run.scr')" />
   </Target>
 </Project>

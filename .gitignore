@@ -1,3 +1,6 @@
+# Standalone webapp mirror (separate git repo: github.com/ijayklein/dwg-layer-pdf-webapp)
+dwg-layer-pdf-webapp/
+
 .aps
 LayerPdfExport_bundle.zip
 LayerPdfExport_bundle-*.zip

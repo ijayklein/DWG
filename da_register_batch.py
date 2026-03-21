@@ -133,7 +133,8 @@ def qualified_activity(nickname: str) -> str:
 def activity_body(engine: str, nickname: str) -> dict[str, Any]:
     # Accoreconsole: path macros must be in double quotes. Build a normal Python string;
     # requests/json will escape quotes for JSON (do not use \\\" — that breaks DA validation).
-    # Load bundle (/al) before opening the DWG (/i) so the package is resolved first.
+    # /al supplies PackageContents + run.scr; run.scr NETLOADs DLLs placed in the job folder
+    # via WorkItem args (AcCoreConsole often does not register .NET 8 bundle modules).
     cmd = (
         '$(engine.path)\\accoreconsole.exe /al "$(appbundles[LayerPdfExport].path)" '
         '/i "$(args[HostDwg].path)" '
@@ -147,6 +148,18 @@ def activity_body(engine: str, nickname: str) -> dict[str, Any]:
                 "verb": "get",
                 "description": "Input DWG",
                 "required": True,
+            },
+            "PluginDll": {
+                "verb": "get",
+                "description": "LayerPdfExport.dll (job folder; NETLOAD in run.scr)",
+                "required": True,
+                "localName": "LayerPdfExport.dll",
+            },
+            "PluginDeps": {
+                "verb": "get",
+                "description": "LayerPdfExport.deps.json next to the DLL",
+                "required": True,
+                "localName": "LayerPdfExport.deps.json",
             },
             "ResultZip": {
                 "verb": "put",

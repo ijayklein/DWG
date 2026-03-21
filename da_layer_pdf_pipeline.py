@@ -143,20 +143,19 @@ def create_workitem(
     token: str,
     activity_id: str,
     host_dwg_url: str,
+    plugin_dll_urn: str,
+    plugin_deps_urn: str,
     output_put_url: str,
     *,
     host_is_oss_urn: bool = True,
     output_is_presigned_s3_put: bool = True,
 ) -> str:
     """
-    Argument names **HostDwg** and **ResultZip** must match your registered Activity.
+    Argument names must match the registered Activity (HostDwg, PluginDll, PluginDeps, ResultZip).
 
-    **HostDwg:** APS expects the OSS ``objectId`` URN from upload complete (``urn:adsk.objects:…``)
-    plus ``Authorization: Bearer`` — Design Automation resolves S3 internally (see APS “direct to S3”
-    workitem samples). Presigned GET URLs can confuse the downloader when combined with other assets.
+    **HostDwg / PluginDll / PluginDeps:** OSS ``objectId`` URNs + ``Authorization: Bearer``.
 
-    **ResultZip:** Use the S3 **presigned PUT** URL from ``signeds3upload`` with **no** Forge headers
-    (only what the S3 signature allows).
+    **ResultZip:** S3 **presigned PUT** URL with **no** Forge headers.
     """
     auth = f"Bearer {token}"
     host_headers: dict[str, str] = (
@@ -170,6 +169,16 @@ def create_workitem(
                 "url": host_dwg_url,
                 "verb": "get",
                 **({"headers": host_headers} if host_headers else {}),
+            },
+            "PluginDll": {
+                "url": plugin_dll_urn,
+                "verb": "get",
+                "headers": host_headers,
+            },
+            "PluginDeps": {
+                "url": plugin_deps_urn,
+                "verb": "get",
+                "headers": host_headers,
             },
             "ResultZip": {
                 "url": output_put_url,
@@ -214,20 +223,49 @@ def poll_workitem(token: str, workitem_id: str, interval: float = 3.0, max_wait:
     raise TimeoutError(workitem_id)
 
 
+def _default_bundle_contents_dir() -> Path:
+    return (
+        Path(__file__).resolve().parent
+        / "design_automation"
+        / "LayerPdfExport"
+        / "LayerPdfExport.bundle"
+        / "Contents"
+    )
+
+
 def run_pipeline(
     dwg_path: Path,
     out_zip: Path,
     aps_path: Path,
     activity_id: str,
     bucket_key: str | None = None,
+    *,
+    plugin_dll: Path | None = None,
+    plugin_deps: Path | None = None,
 ) -> None:
     cid, sec = load_credentials(aps_path)
     token = get_da_token(cid, sec)
     bkey = bucket_key or f"da-{uuid.uuid4().hex[:20]}"
     ensure_bucket(token, bkey)
 
+    bundle_dir = _default_bundle_contents_dir()
+    dll_path = plugin_dll or (bundle_dir / "LayerPdfExport.dll")
+    deps_path = plugin_deps or (bundle_dir / "LayerPdfExport.deps.json")
+    if not dll_path.is_file():
+        raise FileNotFoundError(
+            f"LayerPdfExport.dll not found: {dll_path} "
+            "(build the bundle or pass --plugin-dll)"
+        )
+    if not deps_path.is_file():
+        raise FileNotFoundError(
+            f"LayerPdfExport.deps.json not found: {deps_path} "
+            "(build the bundle or pass --plugin-deps)"
+        )
+
     object_name = dwg_path.name
     host_urn = upload_object(token, bkey, object_name, dwg_path)
+    dll_urn = upload_object(token, bkey, "workitem/LayerPdfExport.dll", dll_path)
+    deps_urn = upload_object(token, bkey, "workitem/LayerPdfExport.deps.json", deps_path)
 
     out_name = f"{Path(object_name).stem}_layer_pdfs.zip"
     put_url, upload_key, post_base = prepare_put_url_for_new_object(token, bkey, out_name)
@@ -236,6 +274,8 @@ def run_pipeline(
         token,
         activity_id,
         host_urn,
+        dll_urn,
+        deps_urn,
         put_url,
         host_is_oss_urn=True,
         output_is_presigned_s3_put=True,
@@ -273,6 +313,18 @@ def main() -> int:
         help="Full Design Automation activity id (or set DA_ACTIVITY_ID)",
     )
     p.add_argument("--bucket-key", default=None, help="Optional OSS bucket key")
+    p.add_argument(
+        "--plugin-dll",
+        type=Path,
+        default=None,
+        help="LayerPdfExport.dll (default: design_automation/.../Contents/LayerPdfExport.dll)",
+    )
+    p.add_argument(
+        "--plugin-deps",
+        type=Path,
+        default=None,
+        help="LayerPdfExport.deps.json (default: alongside plugin DLL)",
+    )
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -287,7 +339,15 @@ def main() -> int:
         return 1
     out = args.output.expanduser().resolve()
     try:
-        run_pipeline(inp, out, args.aps.expanduser().resolve(), act, args.bucket_key)
+        run_pipeline(
+            inp,
+            out,
+            args.aps.expanduser().resolve(),
+            act,
+            args.bucket_key,
+            plugin_dll=args.plugin_dll.expanduser().resolve() if args.plugin_dll else None,
+            plugin_deps=args.plugin_deps.expanduser().resolve() if args.plugin_deps else None,
+        )
     except requests.HTTPError as e:
         body = e.response.text if e.response is not None else ""
         LOG.error("HTTP %s: %s", e.response.status_code if e.response else "?", body[:4000])

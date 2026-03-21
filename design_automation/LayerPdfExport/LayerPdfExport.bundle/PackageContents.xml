@@ -13,7 +13,7 @@
       AppName="LayerPdfExport"
       ModuleName="./Contents/LayerPdfExport.dll"
       AppDescription="Export one PDF per layer"
-      AppType=".Net"
+      LoadOnCommandInvocation="True"
       LoadOnAutoCADStartup="True">
       <Commands GroupName="Commands">
         <Command Local="ExportLayerPdfs" Global="ExportLayerPdfs" />

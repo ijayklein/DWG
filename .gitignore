@@ -2,6 +2,8 @@
 LayerPdfExport_bundle.zip
 LayerPdfExport_bundle-*.zip
 LayerPdfExport_bundle_*.zip
+design_automation/LayerPdfExport/LayerPdfExport.bundle/Contents/*.dll
+design_automation/LayerPdfExport/LayerPdfExport.bundle/Contents/*.deps.json
 __pycache__/
 *.pyc
 .venv/

@@ -7,21 +7,41 @@ The CLI uploads a tarball to Railway over HTTPS. That request often has a
 short deadline (~tens of seconds). Slow networks, VPNs, or routing to Railway
 can fail even for tiny projects. This is a known limitation of the upload path.
 
-Recommended: deploy from GitHub (no CLI upload)
-------------------------------------------------
-Code is already pushed to: https://github.com/ijayklein/DWG
+Option A — Native GitHub integration (no upload from your laptop)
+-----------------------------------------------------------------
+Code: https://github.com/ijayklein/DWG
 
-1. Open your Railway project: https://railway.com/dashboard
-2. Select service **dwg-api** (or your connected service).
-3. Go to **Settings** → **Source** (or **Deployments** → connect repository).
-4. **Connect GitHub**, authorize if asked, choose repo **ijayklein/DWG**.
-5. Set branch **main**, root directory **/** (repo root), save.
-6. Railway will clone the repo and run **Dockerfile** builds on their servers.
-7. Add variables (Service → Variables): **DA_ACTIVITY_ID**, **APS_CLIENT_ID**,
+If `railway add --repo` says **repo not found**, Railway is not linked to your
+GitHub account yet. Fix that first:
+
+1. https://railway.com/dashboard → your account (avatar) → **Account Settings**
+   → **Integrations** → **GitHub** → connect / install the Railway GitHub App
+   and grant access to the **DWG** repo (or all repos).
+
+2. Project **dwg-layer-pdf** → service **dwg-api** → **Settings** → **Source** →
+   **Connect repository** → **ijayklein/DWG**, branch **main**, root **/**.
+
+3. Service → **Variables**: **DA_ACTIVITY_ID**, **APS_CLIENT_ID**,
    **APS_CLIENT_SECRET** (see railway.env.example).
 
-After this, every `git push origin main` triggers a deploy without using
-`railway up`.
+Pushes to **main** then build on Railway’s servers (clone, no local `railway up`).
+
+
+Option B — GitHub Actions + project token (already in repo)
+------------------------------------------------------------
+Workflow: `.github/workflows/deploy-railway.yml`
+
+1. Railway → project **dwg-layer-pdf** → **Settings** → **Tokens** → create a
+   **project token** (environment: production).
+
+2. GitHub → repo **Settings** → **Secrets and variables** → **Actions** →
+   **New repository secret**: name **RAILWAY_TOKEN**, value = the token.
+
+3. Push to **main** (or run the workflow manually under **Actions**). The
+   runner uses `railway up` from GitHub’s network, which usually avoids home‑ISP
+   timeouts.
+
+Still set the same service **Variables** in Railway as in option A.
 
 Optional: retry CLI later
 -------------------------

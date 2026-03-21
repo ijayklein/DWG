@@ -1,0 +1,28 @@
+# Deploy with Railway CLI from GitHub Actions (avoids flaky local `railway up` uploads).
+#
+# Setup (one time):
+# 1. Railway → project dwg-layer-pdf → Settings → Tokens → New project token (production).
+# 2. GitHub → repo Settings → Secrets and variables → Actions → New repository secret:
+#    Name: RAILWAY_TOKEN   Value: <paste token>
+#
+# Pushes to main trigger a deploy. You can also run the workflow manually (Actions tab).
+
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/railwayapp/cli:latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: railway up
+        run: railway up --detach --ci --service dwg-api

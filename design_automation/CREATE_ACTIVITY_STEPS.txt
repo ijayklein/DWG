@@ -91,7 +91,11 @@ Notes:
 • **commandLine** must reference the same bundle id **LayerPdfExport** as in PackageContents.xml
   / zip root folder name. If you renamed the bundle, change **appbundles[LayerPdfExport]** in
   the commandLine to match (see Autodesk’s UpdateDWGParam sample for macro syntax).
-• Backslashes are doubled for JSON strings; some clients use a JSON file instead of inline curl.
+• Path macros must be wrapped in normal double quotes in the final accoreconsole command line.
+  When building JSON from Python, use a plain string with ``"$(args[HostDwg].path)"`` — do **not**
+  embed ``\\\"``; that fails DA validation (“paths must be quoted”). See ``da_register_batch.py``.
+• Backslashes: one ``\`` before ``accoreconsole.exe`` and before ``Contents\run.scr`` in the string
+  sent to the API (JSON will escape as needed).
 
 On success you get HTTP 201 and the qualified id **YOURNICK.LayerPdfExportActivity+** (with version).
 

@@ -131,14 +131,16 @@ def qualified_activity(nickname: str) -> str:
 
 
 def activity_body(engine: str, nickname: str) -> dict[str, Any]:
-    # Must match design_automation/CREATE_ACTIVITY_STEPS.txt (JSON escaping for accoreconsole).
+    # Accoreconsole: path macros must be in double quotes. Build a normal Python string;
+    # requests/json will escape quotes for JSON (do not use \\\" — that breaks DA validation).
+    cmd = (
+        '$(engine.path)\\accoreconsole.exe /i "$(args[HostDwg].path)" '
+        '/al "$(appbundles[LayerPdfExport].path)" '
+        '/s "$(appbundles[LayerPdfExport].path)Contents\\run.scr"'
+    )
     return {
         "id": ACTIVITY_ID,
-        "commandLine": [
-            '$(engine.path)\\\\accoreconsole.exe /i \\"$(args[HostDwg].path)\\" '
-            '/al \\"$(appbundles[LayerPdfExport].path)\\" '
-            '/s \\"$(appbundles[LayerPdfExport].path)Contents\\\\run.scr\\"'
-        ],
+        "commandLine": [cmd],
         "parameters": {
             "HostDwg": {
                 "verb": "get",
@@ -267,6 +269,9 @@ def ensure_activity(token: str, region: str, engine: str, nickname: str) -> int:
         LOG.info("Activity %s exists; creating new version…", ACTIVITY_ID)
         ver_body = {k: v for k, v in body.items() if k != "id"}
         r = post_json(token, f"{base}/activities/{ACTIVITY_ID}/versions", ver_body)
+    elif not r.ok:
+        LOG.error("Create Activity failed: %s\n%s", r.status_code, r.text[:4000])
+        r.raise_for_status()
     else:
         r.raise_for_status()
     data = r.json()

@@ -32,7 +32,8 @@ Option B — GitHub Actions + project token (already in repo)
 Workflow: `.github/workflows/deploy-railway.yml`
 
 1. Railway → project **dwg-layer-pdf** → **Settings** → **Tokens** → create a
-   **project token** (environment: production).
+   **project token** (environment: production). Direct link:
+   https://railway.com/project/4b0f3b7f-ea3f-4a91-ace2-c91c369d2cd7/settings/tokens
 
 2. GitHub → repo **Settings** → **Secrets and variables** → **Actions** →
    **New repository secret**: name **RAILWAY_TOKEN**, value = the token.

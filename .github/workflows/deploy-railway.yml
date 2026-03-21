@@ -16,6 +16,8 @@ on:
 
 jobs:
   deploy:
+    # Skip until you add the secret (see railway-github-deploy.txt — avoids red CI on every push).
+    if: ${{ secrets.RAILWAY_TOKEN != '' }}
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/railwayapp/cli:latest

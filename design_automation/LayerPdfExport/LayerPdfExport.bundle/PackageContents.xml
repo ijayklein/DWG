@@ -17,6 +17,7 @@
       LoadOnAutoCADStartup="True">
       <Commands GroupName="Commands">
         <Command Local="ExportLayerPdfs" Global="ExportLayerPdfs" />
+        <Command Local="ExportFlatPdf" Global="ExportFlatPdf" />
       </Commands>
     </ComponentEntry>
   </Components>

@@ -117,6 +117,50 @@ public class Commands
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({pdfCount} PDF file(s) in folder).");
     }
 
+    /// <summary>
+    /// Single PDF of the whole drawing with all layers on (flat composite). Uses the
+    /// <c>-EXPORT</c> prompt order that worked on DA (PDF → Extents → No → path). Use <c>run_flat.scr</c>
+    /// (or point Activity <c>run.scr</c> at this command) to validate canvas/scale before per-layer exports.
+    /// </summary>
+    [CommandMethod("ExportFlatPdf", CommandFlags.Modal)]
+    public static void ExportFlatPdf()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("No active document.");
+        var db = doc.Database;
+        var ed = doc.Editor;
+
+        ed.WriteMessage("\n[LayerPdfExport] ExportFlatPdf — all layers visible, one PDF.\n");
+
+        SetAllLayersOffState(db, null, false);
+
+        string pdfDir = Path.Combine(Directory.GetCurrentDirectory(), "_layerpdf_out");
+        if (Directory.Exists(pdfDir))
+            Directory.Delete(pdfDir, true);
+        Directory.CreateDirectory(pdfDir);
+
+        ed.Command("._FILEDIA", "0");
+        ed.Command("._TILEMODE", "1");
+        ed.Command("._UCS", "W");
+        ed.Command("._ZOOM", "E");
+
+        string pdfPath = Path.GetFullPath(Path.Combine(pdfDir, "flat.pdf"));
+        if (File.Exists(pdfPath))
+            File.Delete(pdfPath);
+
+        // AutoCAD 2025: PDF → plot area Extents → detailed No → file path (same as early DA fix).
+        ed.Command("._-EXPORT", "PDF", "Extents", "No", pdfPath);
+
+        if (!File.Exists(pdfPath))
+            throw new InvalidOperationException("Flat PDF was not produced; check AcCore log for -EXPORT prompts.");
+
+        string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layer_pdfs.zip");
+        if (File.Exists(zipPath))
+            File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(pdfDir, zipPath);
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} (contains flat.pdf, all layers).\n");
+    }
+
     /// <summary>WCS point as command-line "x,y" (invariant), for -EXPORT Window corners.</summary>
     private static string PointToCmd(Point3d p) =>
         $"{p.X.ToString(CultureInfo.InvariantCulture)},{p.Y.ToString(CultureInfo.InvariantCulture)}";

@@ -1,5 +1,7 @@
 using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
@@ -59,11 +61,12 @@ public class Commands
         // Editor.Command is void in AutoCAD.NET 25 — verify success via output file below.
         ed.Command("._FILEDIA", "0");
 
-        // One fixed "full canvas" for every layer PDF: zoom to the full drawing while all layers
-        // are on, then export with plot area Display (current view). Using -EXPORT … Extents
-        // per layer reframed each PDF to that layer's tight bounds and dropped the full sheet.
+        // Full canvas: frame ALL model-space geometry in the active view once (all layers on).
+        // ZOOM E in AcCoreConsole often does not match the true geometric extents; -EXPORT Display
+        // then only showed part of the drawing. We set the view explicitly from unioned extents.
         ed.Command("._TILEMODE", "1");
-        ed.Command("._ZOOM", "E");
+        ed.Command("._UCS", "W");
+        ZoomViewToFullModelExtents(ed, db);
 
         foreach (var keep in layerNames)
         {
@@ -76,7 +79,7 @@ public class Commands
             // SendStringToExecute queues until after this command returns — zip ran with 0 PDFs.
             // Editor.Command runs each -EXPORT to completion before we zip.
             // AutoCAD 2025 -EXPORT PDF: format → plot area → detailed [Y/N] → file name (FILEDIA 0).
-            // Display = use the view from ZOOM E above; do not use Extents here or the plot recenters.
+            // Display = PDF uses the current view (set above to full model extents).
             ed.Command("._-EXPORT", "PDF", "Display", "No", pdfPath);
             if (!File.Exists(pdfPath))
                 ed.WriteMessage($"\n[LayerPdfExport] EXPORT did not create file for layer {keep}: {pdfPath}");
@@ -96,6 +99,106 @@ public class Commands
             File.Delete(zipPath);
         ZipFile.CreateFromDirectory(pdfDir, zipPath);
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({pdfCount} PDF file(s) in folder).");
+    }
+
+    /// <summary>
+    /// Fit the editor view to the union of all model-space entity extents (WCS XY), with a small margin.
+    /// Falls back to ZOOM E if no extents can be computed.
+    /// </summary>
+    private static void ZoomViewToFullModelExtents(Editor ed, Database db)
+    {
+        if (!TryGetModelSpaceExtents(db, out Extents3d ext))
+        {
+            ed.WriteMessage("\n[LayerPdfExport] No model extents; falling back to ZOOM EXTENTS.\n");
+            ed.Command("._ZOOM", "E");
+            return;
+        }
+
+        InflateExtents(ref ext, marginRatio: 0.02);
+
+        double w = ext.MaxPoint.X - ext.MinPoint.X;
+        double h = ext.MaxPoint.Y - ext.MinPoint.Y;
+        if (w < 1e-9)
+            w = 1.0;
+        if (h < 1e-9)
+            h = 1.0;
+
+        double cx = (ext.MinPoint.X + ext.MaxPoint.X) * 0.5;
+        double cy = (ext.MinPoint.Y + ext.MaxPoint.Y) * 0.5;
+
+        var v = ed.GetCurrentView();
+        v.CenterPoint = new Point2d(cx, cy);
+        v.Width = w;
+        v.Height = h;
+        ed.SetCurrentView(v);
+    }
+
+    private static bool TryGetModelSpaceExtents(Database db, out Extents3d ext)
+    {
+        ext = default;
+        bool any = false;
+
+        using (var tr = db.TransactionManager.StartTransaction())
+        {
+            var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+            var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+            foreach (ObjectId id in ms)
+            {
+                if (tr.GetObject(id, OpenMode.ForRead) is not Entity ent)
+                    continue;
+                try
+                {
+                    var ge = ent.GeometricExtents;
+                    if (!any)
+                    {
+                        ext = ge;
+                        any = true;
+                    }
+                    else
+                    {
+                        ext.AddExtents(ge);
+                    }
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception)
+                {
+                    // e.g. no valid extents for this entity
+                }
+            }
+
+            tr.Commit();
+        }
+
+        if (any)
+            return true;
+
+        try
+        {
+            Point3d a = db.Extmin;
+            Point3d b = db.Extmax;
+            if (a.X < b.X && a.Y < b.Y)
+            {
+                ext = new Extents3d(a, b);
+                return true;
+            }
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+        }
+
+        return false;
+    }
+
+    private static void InflateExtents(ref Extents3d ext, double marginRatio)
+    {
+        double dx = (ext.MaxPoint.X - ext.MinPoint.X) * marginRatio;
+        double dy = (ext.MaxPoint.Y - ext.MinPoint.Y) * marginRatio;
+        if (dx < 1e-12)
+            dx = 1e-6;
+        if (dy < 1e-12)
+            dy = 1e-6;
+        ext = new Extents3d(
+            new Point3d(ext.MinPoint.X - dx, ext.MinPoint.Y - dy, ext.MinPoint.Z),
+            new Point3d(ext.MaxPoint.X + dx, ext.MaxPoint.Y + dy, ext.MaxPoint.Z));
     }
 
     /// <summary>If <paramref name="onlyOn"/> is null, set all layers to <paramref name="off"/>; else only that layer on.</summary>

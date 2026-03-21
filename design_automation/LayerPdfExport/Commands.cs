@@ -4,11 +4,8 @@ using Autodesk.AutoCAD.Runtime;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 
-[assembly: CommandClass(typeof(Commands))]
-[assembly: ExtensionApplication(null)]
-
-namespace LayerPdfExport;
-
+namespace LayerPdfExport
+{
 /// <summary>
 /// Design Automation entry: run command <c>ExportLayerPdfs</c> after the host DWG is opened.
 /// Isolates each layer (others off), runs EXPORT to PDF, zips all PDFs to <c>layer_pdfs.zip</c> in the working folder.
@@ -91,3 +88,7 @@ public class Commands
     private static string SanitizeFileName(string name) =>
         Regex.Replace(name, @"[^\w\.\-]", "_", RegexOptions.None, TimeSpan.FromSeconds(1));
 }
+}
+
+[assembly: CommandClass(typeof(LayerPdfExport.Commands))]
+[assembly: ExtensionApplication(null)]

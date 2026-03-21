@@ -10,6 +10,9 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    # Opt into Node.js 24 for actions (avoids Node 20 deprecation warnings on checkout/setup-dotnet).
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
 

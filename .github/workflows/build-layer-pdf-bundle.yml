@@ -29,9 +29,15 @@ jobs:
         run: |
           Set-Location design_automation/LayerPdfExport
           if (-not (Test-Path "LayerPdfExport.bundle/PackageContents.xml")) { throw "Bundle layout missing" }
-          # Two levels up: LayerPdfExport -> design_automation -> repo root (../../../ was wrong: wrote outside workspace).
           $zip = Join-Path $env:GITHUB_WORKSPACE "LayerPdfExport_bundle.zip"
-          Compress-Archive -Path "LayerPdfExport.bundle" -DestinationPath $zip -Force
+          # Zip must have PackageContents.xml at the **root** (DA rejects a zip whose only root is
+          # a single folder LayerPdfExport.bundle/). Compress from inside the .bundle directory.
+          Push-Location LayerPdfExport.bundle
+          try {
+            Compress-Archive -Path * -DestinationPath $zip -Force
+          } finally {
+            Pop-Location
+          }
           if (-not (Test-Path $zip)) { throw "Zip was not created: $zip" }
           Get-Item $zip | Format-List FullName, Length
 

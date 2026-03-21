@@ -53,10 +53,12 @@ A2) Windows with .NET 8 SDK:
 
 Step B — Zip the bundle for upload
 -----------------------------------
-Zip the *contents* of LayerPdfExport.bundle so the root of the ZIP contains PackageContents.xml
-and the Contents folder (same layout as Autodesk samples). Example (PowerShell):
+The ZIP root must contain **PackageContents.xml** (not a single folder ``LayerPdfExport.bundle/``
+above it), or Design Automation fails: “package has no PackageContents.xml”. From
+``design_automation/LayerPdfExport``:
 
-  Compress-Archive -Path .\LayerPdfExport.bundle\* -DestinationPath .\LayerPdfExport.zip
+  cd LayerPdfExport.bundle
+  Compress-Archive -Path * -DestinationPath ..\LayerPdfExport_bundle.zip -Force
 
 
 Step C — Register AppBundle + Activity (one-time)

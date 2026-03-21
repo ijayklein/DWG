@@ -108,19 +108,19 @@ def complete_signed_upload(token: str, post_base: str, upload_key: str) -> None:
     r.raise_for_status()
 
 
-def get_signed_s3_get_url(
-    token: str, bucket_key: str, object_name: str, *, minutes: int = 60
-) -> str:
+def get_signed_s3_get_url(token: str, bucket_key: str, object_name: str) -> str:
     """
     Presigned S3 URL for an OSS object. Design Automation **HostDwg** must use this (or a direct
     OSS HTTPS URL), not the ``urn:adsk.objects:…`` objectId — otherwise the worker hits
     **failedDownload**.
+
+    Note: ``signeds3download`` does not accept the same ``minutesExpiration`` query params as
+    ``signeds3upload``; use API defaults unless documented otherwise.
     """
     enc = quote(object_name, safe="")
     url = OSS_SIGNED_DOWNLOAD_TMPL.format(bucket=bucket_key, obj=enc)
     r = requests.get(
         url,
-        params={"minutesExpiration": minutes},
         headers={"Authorization": f"Bearer {token}"},
         timeout=120,
     )
@@ -142,27 +142,32 @@ def download_object_bytes(token: str, bucket_key: str, object_name: str) -> byte
 def create_workitem(
     token: str,
     activity_id: str,
-    host_dwg_get_url: str,
+    host_dwg_url: str,
     output_put_url: str,
     *,
-    host_is_presigned: bool = True,
-    output_is_presigned: bool = True,
+    host_is_oss_urn: bool = True,
+    output_is_presigned_s3_put: bool = True,
 ) -> str:
     """
     Argument names **HostDwg** and **ResultZip** must match your registered Activity.
 
-    **HostDwg** must be a real HTTPS GET URL (presigned S3 from ``signeds3download``). Do not pass
-    the raw OSS ``objectId`` URN — that causes **failedDownload**.
-    Presigned S3 URLs must not include Forge ``Authorization`` (extra headers break the signature).
+    **HostDwg:** APS expects the OSS ``objectId`` URN from upload complete (``urn:adsk.objects:…``)
+    plus ``Authorization: Bearer`` — Design Automation resolves S3 internally (see APS “direct to S3”
+    workitem samples). Presigned GET URLs can confuse the downloader when combined with other assets.
+
+    **ResultZip:** Use the S3 **presigned PUT** URL from ``signeds3upload`` with **no** Forge headers
+    (only what the S3 signature allows).
     """
     auth = f"Bearer {token}"
-    host_headers: dict[str, str] = {} if host_is_presigned else {"Authorization": auth}
-    out_headers: dict[str, str] = {} if output_is_presigned else {"Authorization": auth}
+    host_headers: dict[str, str] = (
+        {"Authorization": auth} if host_is_oss_urn else {}
+    )
+    out_headers: dict[str, str] = {} if output_is_presigned_s3_put else {"Authorization": auth}
     body = {
         "activityId": activity_id,
         "arguments": {
             "HostDwg": {
-                "url": host_dwg_get_url,
+                "url": host_dwg_url,
                 "verb": "get",
                 **({"headers": host_headers} if host_headers else {}),
             },
@@ -222,8 +227,7 @@ def run_pipeline(
     ensure_bucket(token, bkey)
 
     object_name = dwg_path.name
-    upload_object(token, bkey, object_name, dwg_path)
-    host_get_url = get_signed_s3_get_url(token, bkey, object_name, minutes=90)
+    host_urn = upload_object(token, bkey, object_name, dwg_path)
 
     out_name = f"{Path(object_name).stem}_layer_pdfs.zip"
     put_url, upload_key, post_base = prepare_put_url_for_new_object(token, bkey, out_name)
@@ -231,14 +235,21 @@ def run_pipeline(
     wid = create_workitem(
         token,
         activity_id,
-        host_get_url,
+        host_urn,
         put_url,
-        host_is_presigned=True,
-        output_is_presigned=True,
+        host_is_oss_urn=True,
+        output_is_presigned_s3_put=True,
     )
     result = poll_workitem(token, wid)
     if (result.get("status") or "").lower() != "success":
         rep = result.get("reportUrl", "")
+        if rep:
+            try:
+                rr = requests.get(rep, timeout=120)
+                if rr.ok:
+                    LOG.error("WorkItem report (truncated):\n%s", rr.text[:12000])
+            except OSError as ex:
+                LOG.error("Could not fetch report: %s", ex)
         msg = f"WorkItem failed: {result}\nReport: {rep}"
         raise RuntimeError(msg)
 

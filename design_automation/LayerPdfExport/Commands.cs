@@ -161,6 +161,88 @@ public class Commands
     }
 
     /// <summary>
+    /// One PDF per paper layout tab (all layers on each), named from the layout.
+    /// Model-only drawings get a single <c>model.pdf</c>. Zipped to <c>layer_pdfs.zip</c>.
+    /// </summary>
+    [CommandMethod("ExportAllLayoutPdfs", CommandFlags.Modal)]
+    public static void ExportAllLayoutPdfs()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("No active document.");
+        var db = doc.Database;
+        var ed = doc.Editor;
+
+        ed.WriteMessage("\n[LayerPdfExport] ExportAllLayoutPdfs — one PDF per layout tab (all layers).\n");
+
+        SetAllLayersOffState(db, null, false);
+
+        string pdfDir = Path.Combine(Directory.GetCurrentDirectory(), "_layerpdf_out");
+        if (Directory.Exists(pdfDir))
+            Directory.Delete(pdfDir, true);
+        Directory.CreateDirectory(pdfDir);
+
+        ed.Command("._FILEDIA", "0");
+
+        var layouts = GetPaperLayoutNamesOrdered(db);
+        if (layouts.Count == 0)
+        {
+            ed.WriteMessage("\n[LayerPdfExport] No paper layouts — exporting Model to model.pdf.\n");
+            ed.Command("._TILEMODE", "1");
+            ed.Command("._UCS", "W");
+            ed.Command("._ZOOM", "E");
+            string modelPath = Path.GetFullPath(Path.Combine(pdfDir, "model.pdf"));
+            CommandExportPdf(ed, false, modelPath);
+            if (!File.Exists(modelPath))
+                throw new InvalidOperationException("model.pdf was not produced.");
+        }
+        else
+        {
+            ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export.\n");
+            foreach (string layoutName in layouts)
+            {
+                ed.Command("._LAYOUT", "S", layoutName);
+                ed.Command("._ZOOM", "E");
+                string safe = SanitizeFileName(layoutName);
+                string pdfPath = Path.GetFullPath(Path.Combine(pdfDir, $"{safe}.pdf"));
+                if (File.Exists(pdfPath))
+                    File.Delete(pdfPath);
+                CommandExportPdf(ed, true, pdfPath);
+                if (!File.Exists(pdfPath))
+                    ed.WriteMessage($"\n[LayerPdfExport] Warning: no PDF for layout \"{layoutName}\" -> {pdfPath}");
+                else
+                    ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {pdfPath}");
+            }
+        }
+
+        int pdfCount = Directory.GetFiles(pdfDir, "*.pdf", SearchOption.TopDirectoryOnly).Length;
+        if (pdfCount == 0)
+            throw new InvalidOperationException("No PDFs were produced.");
+
+        string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layer_pdfs.zip");
+        if (File.Exists(zipPath))
+            File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(pdfDir, zipPath);
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({pdfCount} PDF file(s)).\n");
+    }
+
+    /// <summary>All non-Model layouts, sorted by name (stable; may differ from UI tab order).</summary>
+    private static List<string> GetPaperLayoutNamesOrdered(Database db)
+    {
+        var list = new List<string>();
+        using var tr = db.TransactionManager.StartTransaction();
+        var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        foreach (DBDictionaryEntry e in dict)
+        {
+            if (!string.Equals(e.Key, "Model", StringComparison.OrdinalIgnoreCase))
+                list.Add(e.Key);
+        }
+
+        tr.Commit();
+        list.Sort(StringComparer.OrdinalIgnoreCase);
+        return list;
+    }
+
+    /// <summary>
     /// <c>-EXPORT</c> PDF prompts differ: Model uses Display / Extents / Window; an active layout
     /// uses Current layout / All layouts (see DA report if keywords change).
     /// </summary>

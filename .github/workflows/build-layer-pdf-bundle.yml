@@ -39,7 +39,7 @@ jobs:
         shell: pwsh
         run: |
           $contents = "design_automation/LayerPdfExport/LayerPdfExport.bundle/Contents"
-          foreach ($f in @("LayerPdfExport.dll", "LayerPdfExport.deps.json", "run.scr", "run_flat.scr")) {
+          foreach ($f in @("LayerPdfExport.dll", "LayerPdfExport.deps.json", "run.scr", "run_flat.scr", "run_all_layouts.scr")) {
             $p = Join-Path $contents $f
             if (-not (Test-Path $p)) { throw "Missing after build: $p" }
           }

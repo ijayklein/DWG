@@ -18,6 +18,7 @@
       <Commands GroupName="Commands">
         <Command Local="ExportLayerPdfs" Global="ExportLayerPdfs" />
         <Command Local="ExportFlatPdf" Global="ExportFlatPdf" />
+        <Command Local="ExportAllLayoutPdfs" Global="ExportAllLayoutPdfs" />
       </Commands>
     </ComponentEntry>
   </Components>

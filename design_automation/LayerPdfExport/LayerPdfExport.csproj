@@ -15,6 +15,7 @@
     <PackageReference Include="AutoCAD.NET" Version="25.1.0" />
     <None Include="run.scr" CopyToOutputDirectory="PreserveNewest" />
     <None Include="run_flat.scr" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="run_all_layouts.scr" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="AssembleBundle" AfterTargets="Build">
     <PropertyGroup>
@@ -29,5 +30,6 @@
     <Copy SourceFiles="@(BundlePrimary)" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(OutputPath)run.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run.scr')" />
     <Copy SourceFiles="$(OutputPath)run_flat.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run_flat.scr')" />
+    <Copy SourceFiles="$(OutputPath)run_all_layouts.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run_all_layouts.scr')" />
   </Target>
 </Project>

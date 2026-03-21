@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Design Automation — run your registered **LayerPdfExport** Activity (one PDF per layer → zip).
+Design Automation — run your registered **LayerPdfExport** Activity (PDF(s) → ``layer_pdfs.zip``).
 
 Prerequisites (once):
   1. Build ``design_automation/LayerPdfExport`` (GitHub Actions artifact or ``dotnet build`` on Windows).

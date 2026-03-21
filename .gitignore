@@ -3,7 +3,7 @@ LayerPdfExport_bundle.zip
 LayerPdfExport_bundle-*.zip
 LayerPdfExport_bundle_*.zip
 LayerPdfExport_bundle-v*.zip
-_da_v9/
+_da_v*/
 design_automation/LayerPdfExport/LayerPdfExport.bundle/Contents/*.dll
 design_automation/LayerPdfExport/LayerPdfExport.bundle/Contents/*.deps.json
 __pycache__/

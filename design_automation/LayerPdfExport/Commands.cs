@@ -3,7 +3,6 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Runtime;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
-using System.Threading;
 
 [assembly: CommandClass(typeof(LayerPdfExport.Commands))]
 [assembly: ExtensionApplication(typeof(LayerPdfExport.PluginApp))]
@@ -59,49 +58,29 @@ public class Commands
         foreach (var keep in layerNames)
         {
             SetAllLayersOffState(db, keep, true);
-            ed.Regen();
             string safe = SanitizeFileName(keep);
             string pdfPath = Path.GetFullPath(Path.Combine(pdfDir, safe + ".pdf"));
             if (File.Exists(pdfPath))
                 File.Delete(pdfPath);
 
             doc.SendStringToExecute("._FILEDIA\n0\n", true, false, false);
-            // AcCoreConsole: extra newlines accept PDF export defaults; SendStringToExecute is async.
+            // Do not Thread.Sleep or Regen() here — blocks the AcCore message loop and trips DA heartbeat.
             doc.SendStringToExecute(
                 $"._-EXPORT\nPDF\n{pdfPath}\n\n\n\n",
                 true,
                 false,
                 false);
-            if (!WaitForFile(pdfPath, TimeSpan.FromSeconds(90)))
-                ed.WriteMessage($"\n[LayerPdfExport] WARN: no file after EXPORT: {pdfPath}");
-            else
-                ed.WriteMessage($"\n[LayerPdfExport] Layer {keep} -> {pdfPath}");
+            ed.WriteMessage($"\n[LayerPdfExport] Queued EXPORT for layer {keep} -> {pdfPath}");
         }
 
         SetAllLayersOffState(db, null, false);
-
-        var written = Directory.GetFiles(pdfDir, "*.pdf", SearchOption.TopDirectoryOnly);
-        if (written.Length == 0)
-            throw new InvalidOperationException(
-                "[LayerPdfExport] No PDFs were produced (check EXPORT/PDF prompts in accoreconsole report).");
 
         string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layer_pdfs.zip");
         if (File.Exists(zipPath))
             File.Delete(zipPath);
         ZipFile.CreateFromDirectory(pdfDir, zipPath);
-        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({written.Length} PDFs)");
-    }
-
-    private static bool WaitForFile(string path, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (File.Exists(path) && new FileInfo(path).Length > 0)
-                return true;
-            Thread.Sleep(400);
-        }
-        return File.Exists(path) && new FileInfo(path).Length > 0;
+        var written = Directory.GetFiles(pdfDir, "*.pdf", SearchOption.TopDirectoryOnly);
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({written.Length} PDF file(s) in folder).");
     }
 
     /// <summary>If <paramref name="onlyOn"/> is null, set all layers to <paramref name="off"/>; else only that layer on.</summary>

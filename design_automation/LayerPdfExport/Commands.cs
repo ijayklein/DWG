@@ -76,8 +76,7 @@ public class Commands
         }
         else
         {
-            ed.WriteMessage("\n[LayerPdfExport] No model extents; ZOOM E then Display for each PDF.\n");
-            ed.Command("._ZOOM", "E");
+            ed.WriteMessage("\n[LayerPdfExport] No extents for Window; using Display per PDF (model only).\n");
         }
 
         var win1 = haveWindow ? PointToCmd(fullExt.MinPoint) : "";
@@ -91,8 +90,10 @@ public class Commands
             if (File.Exists(pdfPath))
                 File.Delete(pdfPath);
 
-            // AutoCAD 2025 -EXPORT PDF: format → plot area → … → detailed [Y/N] → file name (FILEDIA 0).
-            if (haveWindow)
+            // Model: Window or Display. Paper layout: Current layout (not Extents/Window — different prompts).
+            if (usingPaper)
+                CommandExportPdf(ed, true, pdfPath);
+            else if (haveWindow)
                 ed.Command("._-EXPORT", "PDF", "Window", win1, win2, "No", pdfPath);
             else
                 ed.Command("._-EXPORT", "PDF", "Display", "No", pdfPath);
@@ -117,9 +118,8 @@ public class Commands
     }
 
     /// <summary>
-    /// Single PDF with all layers on. Activates the first paper layout when the DWG has one
-    /// (the usual “full page”), otherwise Model. Then <c>ZOOM</c> <c>E</c> and <c>-EXPORT</c>
-    /// PDF → Extents → No → path.
+    /// Single PDF with all layers on. Activates the first paper layout when the DWG has one,
+    /// otherwise Model; then <c>ZOOM</c> <c>E</c> and <c>-EXPORT</c> using layout vs model prompts.
     /// </summary>
     [CommandMethod("ExportFlatPdf", CommandFlags.Modal)]
     public static void ExportFlatPdf()
@@ -139,15 +139,16 @@ public class Commands
         Directory.CreateDirectory(pdfDir);
 
         ed.Command("._FILEDIA", "0");
-        _ = SelectExportCanvas(ed, db);
+        var (usingPaper, _) = SelectExportCanvas(ed, db);
         ed.Command("._ZOOM", "E");
 
         string pdfPath = Path.GetFullPath(Path.Combine(pdfDir, "flat.pdf"));
         if (File.Exists(pdfPath))
             File.Delete(pdfPath);
 
-        // AutoCAD 2025: PDF → plot area Extents → detailed No → file path (same as early DA fix).
-        ed.Command("._-EXPORT", "PDF", "Extents", "No", pdfPath);
+        // Model: PDF → Extents → No → path. Paper layout: PDF → Current layout | All layouts → No → path
+        // (see AcCore log — “Extents” is invalid on a layout tab).
+        CommandExportPdf(ed, usingPaper, pdfPath);
 
         if (!File.Exists(pdfPath))
             throw new InvalidOperationException("Flat PDF was not produced; check AcCore log for -EXPORT prompts.");
@@ -157,6 +158,18 @@ public class Commands
             File.Delete(zipPath);
         ZipFile.CreateFromDirectory(pdfDir, zipPath);
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} (contains flat.pdf, all layers).\n");
+    }
+
+    /// <summary>
+    /// <c>-EXPORT</c> PDF prompts differ: Model uses Display / Extents / Window; an active layout
+    /// uses Current layout / All layouts (see DA report if keywords change).
+    /// </summary>
+    private static void CommandExportPdf(Editor ed, bool paperLayout, string pdfPath)
+    {
+        if (paperLayout)
+            ed.Command("._-EXPORT", "PDF", "Current", "No", pdfPath);
+        else
+            ed.Command("._-EXPORT", "PDF", "Extents", "No", pdfPath);
     }
 
     /// <summary>WCS point as command-line "x,y" (invariant), for -EXPORT Window corners.</summary>

@@ -31,7 +31,7 @@ public class Commands
         var db = doc.Database;
         var ed = doc.Editor;
 
-        ed.WriteMessage("\n[LayerPdfExport] Start.");
+        ed.WriteMessage("\n[LayerPdfExport] Start.\n");
 
         var layerNames = new List<string>();
         using (var tr = db.TransactionManager.StartTransaction())
@@ -69,8 +69,8 @@ public class Commands
 
             // SendStringToExecute queues until after this command returns — zip ran with 0 PDFs.
             // Editor.Command runs each -EXPORT to completion before we zip.
-            // Typical -EXPORT PDF: format, file, plot area, then detailed config (No = skip extra prompts).
-            ed.Command("._-EXPORT", "PDF", pdfPath, "Extents", "No");
+            // AutoCAD 2025 -EXPORT PDF: format → plot area → detailed [Y/N] → file name (FILEDIA 0).
+            ed.Command("._-EXPORT", "PDF", "Extents", "No", pdfPath);
             if (!File.Exists(pdfPath))
                 ed.WriteMessage($"\n[LayerPdfExport] EXPORT did not create file for layer {keep}: {pdfPath}");
             else

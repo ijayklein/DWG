@@ -62,13 +62,12 @@ public class Commands
         // Editor.Command is void in AutoCAD.NET 25 — verify success via output file below.
         ed.Command("._FILEDIA", "0");
 
-        // Full canvas in model space: union all entity extents (all layers on), then PDF plot area
-        // Window with fixed WCS corners. AcCore often ignores SetCurrentView for -EXPORT Display,
-        // so the visible "canvas" was still cropped; Window pins the publish region to the box.
-        ed.Command("._TILEMODE", "1");
-        ed.Command("._UCS", "W");
+        // Prefer the first paper layout (sheet + viewports) — that is usually the “full page” users
+        // see in AutoCAD. Exporting Model alone often frames only a small model-space crop.
+        var (usingPaper, layoutName) = SelectExportCanvas(ed, db);
+        ed.Command("._ZOOM", "E");
 
-        bool haveWindow = TryGetModelSpaceExtents(db, out Extents3d fullExt);
+        bool haveWindow = TryGetExtentsForCanvas(db, usingPaper, layoutName, out Extents3d fullExt);
         if (haveWindow)
         {
             InflateExtents(ref fullExt, marginRatio: 0.02);
@@ -118,9 +117,9 @@ public class Commands
     }
 
     /// <summary>
-    /// Single PDF of the whole drawing with all layers on (flat composite). Uses the
-    /// <c>-EXPORT</c> prompt order that worked on DA (PDF → Extents → No → path). Use <c>run_flat.scr</c>
-    /// (or point Activity <c>run.scr</c> at this command) to validate canvas/scale before per-layer exports.
+    /// Single PDF with all layers on. Activates the first paper layout when the DWG has one
+    /// (the usual “full page”), otherwise Model. Then <c>ZOOM</c> <c>E</c> and <c>-EXPORT</c>
+    /// PDF → Extents → No → path.
     /// </summary>
     [CommandMethod("ExportFlatPdf", CommandFlags.Modal)]
     public static void ExportFlatPdf()
@@ -140,8 +139,7 @@ public class Commands
         Directory.CreateDirectory(pdfDir);
 
         ed.Command("._FILEDIA", "0");
-        ed.Command("._TILEMODE", "1");
-        ed.Command("._UCS", "W");
+        _ = SelectExportCanvas(ed, db);
         ed.Command("._ZOOM", "E");
 
         string pdfPath = Path.GetFullPath(Path.Combine(pdfDir, "flat.pdf"));
@@ -164,6 +162,101 @@ public class Commands
     /// <summary>WCS point as command-line "x,y" (invariant), for -EXPORT Window corners.</summary>
     private static string PointToCmd(Point3d p) =>
         $"{p.X.ToString(CultureInfo.InvariantCulture)},{p.Y.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// Switch to the drawing’s “page”: first paper layout if any, otherwise Model + WORLD UCS.
+    /// </summary>
+    private static (bool UsingPaperLayout, string? LayoutName) SelectExportCanvas(Editor ed, Database db)
+    {
+        string? paper = GetFirstPaperLayoutName(db);
+        if (string.IsNullOrEmpty(paper))
+        {
+            ed.Command("._TILEMODE", "1");
+            ed.Command("._UCS", "W");
+            ed.WriteMessage("\n[LayerPdfExport] Canvas: Model (no paper layouts).\n");
+            return (false, null);
+        }
+
+        ed.Command("._LAYOUT", "S", paper);
+        ed.WriteMessage($"\n[LayerPdfExport] Canvas: paper layout \"{paper}\".\n");
+        return (true, paper);
+    }
+
+    /// <summary>First non-Model layout; prefers Layout1 when present (common default tab).</summary>
+    private static string? GetFirstPaperLayoutName(Database db)
+    {
+        using var tr = db.TransactionManager.StartTransaction();
+        var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        string? first = null;
+        foreach (DBDictionaryEntry e in dict)
+        {
+            if (string.Equals(e.Key, "Model", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (string.Equals(e.Key, "Layout1", StringComparison.OrdinalIgnoreCase))
+            {
+                tr.Commit();
+                return e.Key;
+            }
+
+            first ??= e.Key;
+        }
+
+        tr.Commit();
+        return first;
+    }
+
+    /// <summary>Extents for -EXPORT Window: paperspace block if in a layout, else model space.</summary>
+    private static bool TryGetExtentsForCanvas(Database db, bool paperLayout, string? layoutName, out Extents3d ext)
+    {
+        if (paperLayout && !string.IsNullOrEmpty(layoutName) && TryGetPaperLayoutExtents(db, layoutName, out ext))
+            return true;
+        return TryGetModelSpaceExtents(db, out ext);
+    }
+
+    private static bool TryGetPaperLayoutExtents(Database db, string layoutName, out Extents3d ext)
+    {
+        ext = default;
+        bool any = false;
+        using var tr = db.TransactionManager.StartTransaction();
+        var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        ObjectId layId;
+        try
+        {
+            layId = dict.GetAt(layoutName);
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+            tr.Commit();
+            return false;
+        }
+
+        var layout = (Layout)tr.GetObject(layId, OpenMode.ForRead);
+        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+        foreach (ObjectId id in btr)
+        {
+            if (tr.GetObject(id, OpenMode.ForRead) is not Entity ent)
+                continue;
+            try
+            {
+                var ge = ent.GeometricExtents;
+                if (!any)
+                {
+                    ext = ge;
+                    any = true;
+                }
+                else
+                {
+                    ext.AddExtents(ge);
+                }
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+            }
+        }
+
+        tr.Commit();
+        return any;
+    }
 
     private static bool TryGetModelSpaceExtents(Database db, out Extents3d ext)
     {

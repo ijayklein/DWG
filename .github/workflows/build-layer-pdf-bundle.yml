@@ -1,0 +1,33 @@
+name: Build LayerPdfExport bundle
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "design_automation/LayerPdfExport/**"
+      - ".github/workflows/build-layer-pdf-bundle.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: dotnet build
+        run: dotnet build design_automation/LayerPdfExport/LayerPdfExport.csproj -c Release
+
+      - name: Zip bundle folder
+        shell: pwsh
+        run: |
+          Set-Location design_automation/LayerPdfExport
+          if (-not (Test-Path "LayerPdfExport.bundle/PackageContents.xml")) { throw "Bundle layout missing" }
+          Compress-Archive -Path "LayerPdfExport.bundle" -DestinationPath "../../../LayerPdfExport_bundle.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LayerPdfExport_bundle
+          path: LayerPdfExport_bundle.zip

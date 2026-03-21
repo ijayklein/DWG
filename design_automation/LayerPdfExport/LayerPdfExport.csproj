@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LayerPdfExport</RootNamespace>
+    <AssemblyName>LayerPdfExport</AssemblyName>
+    <OutputType>Library</OutputType>
+    <UseWindowsForms>false</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <!-- Reference assemblies only; runs on Autodesk Design Automation hosts. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="AutoCAD.NET" Version="25.1.0" />
+    <None Include="run.scr" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="AssembleBundle" AfterTargets="Build">
+    <PropertyGroup>
+      <BundleDir>$(MSBuildProjectDirectory)\LayerPdfExport.bundle\Contents\</BundleDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(BundleDir)" />
+    <ItemGroup>
+      <BundleFiles Include="$(OutputPath)*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(BundleFiles)" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutputPath)run.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run.scr')" />
+  </Target>
+</Project>

@@ -1,0 +1,124 @@
+## Converting DWG to DXF or PDF with APS
+
+You need to use the **Model Derivative API**, which is the APS service specifically designed for file translation. The overall workflow has four stages: get a token, upload your file, submit a translation job, then download the result.
+
+---
+
+### Stage 1: Get a New Token With the Right Scopes
+
+The token you already have only has `data:read`. For this workflow you need broader scopes:
+
+```bash
+curl -s -X POST 'https://developer.api.autodesk.com/authentication/v2/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -H 'Accept: application/json' \
+  -u 'YOUR_CLIENT_ID:YOUR_CLIENT_SECRET' \
+  -d 'grant_type=client_credentials&scope=data:read data:write data:create bucket:create bucket:read'
+```
+
+Save the `access_token` from the response — you'll use it in every step below.
+
+---
+
+### Stage 2: Create a Bucket and Upload Your DWG
+
+First, create a storage bucket (skip this if you already have one):
+
+```bash
+curl -s -X POST 'https://developer.api.autodesk.com/oss/v2/buckets' \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{"bucketKey": "my-unique-bucket-123", "policyKey": "transient"}'
+```
+
+Then upload your DWG file to it:
+
+```bash
+curl -s -X PUT 'https://developer.api.autodesk.com/oss/v2/buckets/my-unique-bucket-123/objects/myfile.dwg' \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  -H 'Content-Type: application/octet-stream' \
+  --data-binary '@/path/to/myfile.dwg'
+```
+
+The response will contain an `objectId` that looks like this:
+
+```
+urn:adsk.objects:os.object:my-unique-bucket-123/myfile.dwg
+```
+
+Now Base64-encode it (the Model Derivative API requires a URL-safe Base64 URN):
+
+```bash
+echo -n 'urn:adsk.objects:os.object:my-unique-bucket-123/myfile.dwg' | base64 | tr '+/' '-_' | tr -d '='
+```
+
+Save that encoded string as your `BASE64_URN`.
+
+---
+
+### Stage 3: Submit the Translation Job
+
+**For PDF:**
+
+```bash
+curl -s -X POST 'https://developer.api.autodesk.com/modelderivative/v2/designdata/job' \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "input": {
+      "urn": "BASE64_URN"
+    },
+    "output": {
+      "formats": [
+        {
+          "type": "pdf"
+        }
+      ]
+    }
+  }'
+```
+
+**For DXF:**
+
+```bash
+curl -s -X POST 'https://developer.api.autodesk.com/modelderivative/v2/designdata/job' \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "input": {
+      "urn": "BASE64_URN"
+    },
+    "output": {
+      "formats": [
+        {
+          "type": "dxf"
+        }
+      ]
+    }
+  }'
+```
+
+---
+
+### Stage 4: Poll for Status and Download
+
+Translation is asynchronous, so you need to poll the manifest endpoint until it reports `"status": "success"`:
+
+```bash
+curl -s 'https://developer.api.autodesk.com/modelderivative/v2/designdata/BASE64_URN/manifest' \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+```
+
+Once complete, the manifest will contain derivative URNs pointing to the output files. You can then download them using the fetch endpoint:
+
+```bash
+curl -s 'https://developer.api.autodesk.com/modelderivative/v2/designdata/BASE64_URN/manifest/DERIVATIVE_URN' \
+  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN' \
+  -o output.pdf
+```
+
+---
+
+### A Few Important Notes
+
+The `policyKey: transient` on the bucket means files are automatically deleted after **24 hours**. If you need longer storage, use `temporary` (30 days) or `persistent` (indefinitely). Also, translation can take anywhere from a few seconds to a couple of minutes depending on file size, so be prepared to poll the manifest endpoint several times before the status turns to `"success"`. Finally, keep in mind that your access token expires in 1 hour — if the process takes long, you may need to refresh it.

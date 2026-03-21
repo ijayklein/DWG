@@ -1,0 +1,136 @@
+================================================================================
+Design Automation — CreateActivity (step-by-step)
+================================================================================
+**Batch (OAuth + engine pick + upload + aliases):** from repo root run
+``python da_register_batch.py --bundle-zip path/to/LayerPdfExport_bundle.zip``,
+or ``python da_register_batch.py --introspect`` to print nickname/engine/ids only.
+Uses the same ``.aps`` file as ``aps_dwg_convert.py``.
+
+Region below uses **us-east**; change the URL if you use another DA region.
+
+Prerequisites
+-------------
+• APS app (Client ID / Secret) with Design Automation enabled; OAuth scope **code:all**.
+• AppBundle **already uploaded** and an **AppBundle alias** exists, e.g.
+    YOURNICK.LayerPdfExport+prod
+  (If not done yet, complete “Upload AppBundle” in the AutoCAD DA tutorial first.)
+
+Values you must substitute
+----------------------------
+  TOKEN       = Bearer token from POST /authentication/v2/token
+  YOURNICK    = your DA nickname (from GET …/forgeapps/me)
+  ENGINE      = engine id from GET …/engines (pick AutoCAD 25.x to match NuGet 25.1)
+
+--------------------------------------------------------------------------------
+Step 0 — Get a token (2-legged)
+--------------------------------------------------------------------------------
+curl -s -X POST 'https://developer.api.autodesk.com/authentication/v2/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -u 'YOUR_CLIENT_ID:YOUR_CLIENT_SECRET' \
+  -d 'grant_type=client_credentials&scope=code:all'
+
+Save access_token as TOKEN (without the word Bearer in the variable).
+
+--------------------------------------------------------------------------------
+Step 1 — Confirm your nickname
+--------------------------------------------------------------------------------
+curl -s -H "Authorization: Bearer TOKEN" \
+  'https://developer.api.autodesk.com/da/us-east/v3/forgeapps/me'
+
+Response includes **nickname** (e.g. jayklein or similar). Use it as YOURNICK.
+
+--------------------------------------------------------------------------------
+Step 2 — List engines (pick one AutoCAD line)
+--------------------------------------------------------------------------------
+curl -s -H "Authorization: Bearer TOKEN" \
+  'https://developer.api.autodesk.com/da/us-east/v3/engines'
+
+Find an engine whose **product** is AutoCAD and version matches your build, e.g.:
+  "Autodesk.AutoCAD+25_1"
+Use that exact string as ENGINE.
+
+--------------------------------------------------------------------------------
+Step 3 — POST Create Activity
+--------------------------------------------------------------------------------
+Endpoint:
+  POST https://developer.api.autodesk.com/da/us-east/v3/activities
+
+Headers:
+  Authorization: Bearer TOKEN
+  Content-Type: application/json
+
+Body (edit YOURNICK, ENGINE, and commandLine if your bundle name differs):
+
+{
+  "id": "LayerPdfExportActivity",
+  "commandLine": [
+    "$(engine.path)\\\\accoreconsole.exe /i \\\"$(args[HostDwg].path)\\\" /al \\\"$(appbundles[LayerPdfExport].path)\\\" /s \\\"$(appbundles[LayerPdfExport].path)Contents\\\\run.scr\\\""
+  ],
+  "parameters": {
+    "HostDwg": {
+      "verb": "get",
+      "description": "Input DWG",
+      "required": true
+    },
+    "ResultZip": {
+      "verb": "put",
+      "description": "layer_pdfs.zip output",
+      "required": true,
+      "localName": "layer_pdfs.zip"
+    }
+  },
+  "engine": "ENGINE",
+  "appbundles": [
+    "YOURNICK.LayerPdfExport+prod"
+  ]
+}
+
+Notes:
+• **id** is the short activity name (no nickname prefix in the JSON body).
+• **appbundles** entries must match an existing AppBundle + alias you uploaded.
+• **commandLine** must reference the same bundle id **LayerPdfExport** as in PackageContents.xml
+  / zip root folder name. If you renamed the bundle, change **appbundles[LayerPdfExport]** in
+  the commandLine to match (see Autodesk’s UpdateDWGParam sample for macro syntax).
+• Backslashes are doubled for JSON strings; some clients use a JSON file instead of inline curl.
+
+On success you get HTTP 201 and the qualified id **YOURNICK.LayerPdfExportActivity+** (with version).
+
+--------------------------------------------------------------------------------
+Step 4 — Create an Activity alias (e.g. prod → version 1)
+--------------------------------------------------------------------------------
+First creation is usually version 1. Create alias **prod**:
+
+  POST https://developer.api.autodesk.com/da/us-east/v3/activities/LayerPdfExportActivity/aliases
+
+Body:
+{
+  "version": 1,
+  "id": "prod"
+}
+
+(If your API requires the fully qualified id for the path, use **YOURNICK.LayerPdfExportActivity**
+— check the CreateActivity response for the exact **id** string.)
+
+After this, the full activity id for WorkItems is typically:
+
+  YOURNICK.LayerPdfExportActivity+prod
+
+Use that as **DA_ACTIVITY_ID** or **--activity-id** in da_layer_pdf_pipeline.py.
+
+--------------------------------------------------------------------------------
+Step 5 — Verify
+--------------------------------------------------------------------------------
+  curl -s -H "Authorization: Bearer TOKEN" \
+    'https://developer.api.autodesk.com/da/us-east/v3/activities'
+
+You should see **YOURNICK.LayerPdfExportActivity** in the list.
+
+================================================================================
+If CreateActivity returns 400
+================================================================================
+• AppBundle alias wrong → fix Step “Upload AppBundle” first.
+• Engine string wrong → re-copy from /engines.
+• commandLine macros wrong → compare character-by-character with a working AutoCAD sample
+  from aps-design-automation-dotnet (UpdateDWGParam).
+• Parameter names must match WorkItem JSON keys: **HostDwg** and **ResultZip** (see
+  da_layer_pdf_pipeline.py).

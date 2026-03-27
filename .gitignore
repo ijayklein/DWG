@@ -1,6 +1,10 @@
 # Standalone webapp mirror (separate git repo: github.com/ijayklein/dwg-layer-pdf-webapp)
 dwg-layer-pdf-webapp/
 
+# Self-contained DA v17 runner (optional local venv / output)
+da_layer_pdf_v17/.venv/
+da_layer_pdf_v17/_da_v17_run/
+
 .aps
 LayerPdfExport_bundle.zip
 LayerPdfExport_bundle-*.zip
@@ -15,6 +19,10 @@ __pycache__/
 .DS_Store
 
 # Large / generated
+example_entity_markers.dxf
+example_marked.dxf
+drive-download-*/**/*_entity_markers.dxf
+capri/*entity_markers*.dxf
 layer_pdfs.zip
 *.dwg
 *.pdf

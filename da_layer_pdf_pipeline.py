@@ -5,7 +5,8 @@ Design Automation â€” run your registered **LayerPdfExport** Activity (PDF(s) â†
 Prerequisites (once):
   1. Build ``design_automation/LayerPdfExport`` (GitHub Actions artifact or ``dotnet build`` on Windows).
   2. Register the AppBundle + Activity with APS Design Automation (nickname, engine).
-  3. Pass ``--activity-id YourNick.LayerPdfExportActivity+prod`` (or env ``DA_ACTIVITY_ID``).
+  3. Pass ``--activity-id YourNick.LayerPdfExportActivity+prod``, env ``DA_ACTIVITY_ID``, or set
+     ``DEFAULT_DA_ACTIVITY_ID`` in this file for your registered Activity.
 
 Runtime (every run):
   Uploads the DWG to OSS, starts a WorkItem, waits, completes the S3 upload handshake,
@@ -36,6 +37,12 @@ from aps_dwg_convert import (
 )
 
 LOG = logging.getLogger("da_layer_pdf_pipeline")
+
+# Default qualified activity id when ``--activity-id`` and ``DA_ACTIVITY_ID`` are unset.
+# Override per machine or project: ``export DA_ACTIVITY_ID=...`` or pass ``--activity-id``.
+DEFAULT_DA_ACTIVITY_ID: str = (
+    "0PWFCWGmSuGYmAVHOOm1OFAzaZPqHxobLYL7PqEtPtmwE52a.LayerPdfExportActivity+prod"
+)
 
 
 def load_aps_credentials(
@@ -342,7 +349,7 @@ def main() -> int:
     p.add_argument(
         "--activity-id",
         default=None,
-        help="Full Design Automation activity id (or set DA_ACTIVITY_ID)",
+        help="Full Design Automation activity id (else DA_ACTIVITY_ID env, else DEFAULT_DA_ACTIVITY_ID)",
     )
     p.add_argument("--bucket-key", default=None, help="Optional OSS bucket key")
     p.add_argument(
@@ -360,9 +367,15 @@ def main() -> int:
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    act = args.activity_id or os.environ.get("DA_ACTIVITY_ID", "").strip()
+    act = (
+        args.activity_id
+        or os.environ.get("DA_ACTIVITY_ID", "").strip()
+        or DEFAULT_DA_ACTIVITY_ID.strip()
+    )
     if not act:
-        LOG.error("Set --activity-id or DA_ACTIVITY_ID after registering your Activity.")
+        LOG.error(
+            "Set --activity-id, DA_ACTIVITY_ID, or DEFAULT_DA_ACTIVITY_ID in da_layer_pdf_pipeline.py."
+        )
         return 1
 
     inp = args.input.expanduser().resolve()

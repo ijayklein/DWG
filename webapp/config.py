@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from da_layer_pdf_pipeline import DEFAULT_DA_ACTIVITY_ID
+
 
 def _path(name: str, default: str) -> Path:
     return Path(os.environ.get(name, default)).expanduser().resolve()
@@ -16,8 +18,8 @@ def _path(name: str, default: str) -> Path:
 PRECONFIGURED_APS_CLIENT_ID: str = ""
 PRECONFIGURED_APS_CLIENT_SECRET: str = ""
 
-# Design Automation Activity (full id ending in +prod or similar)
-DA_ACTIVITY_ID: str = os.environ.get("DA_ACTIVITY_ID", "").strip()
+# Design Automation Activity (env overrides DEFAULT_DA_ACTIVITY_ID in da_layer_pdf_pipeline.py)
+DA_ACTIVITY_ID: str = os.environ.get("DA_ACTIVITY_ID", "").strip() or DEFAULT_DA_ACTIVITY_ID
 
 # OSS bucket for uploads (optional; auto-generated per job if unset)
 DA_BUCKET_KEY: str | None = os.environ.get("DA_BUCKET_KEY", "").strip() or None

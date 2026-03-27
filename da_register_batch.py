@@ -16,6 +16,9 @@ Examples::
   python da_register_batch.py --introspect
   python da_register_batch.py --bundle-zip path/to/LayerPdfExport_bundle.zip
   python da_register_batch.py --skip-appbundle
+  python da_register_batch.py --bundle-zip … --also-layout-dwg-activity   # + LayoutDwgSplitActivity
+
+``layout_dwg_activity_id`` from the script output is what ``da_layout_dwg_pipeline.py`` / ``DA_LAYOUT_DWG_ACTIVITY_ID`` use.
 """
 from __future__ import annotations
 
@@ -40,6 +43,7 @@ DA_SCOPES = (
 DEFAULT_REGION = "us-east"
 BUNDLE_ID = "LayerPdfExport"
 ACTIVITY_ID = "LayerPdfExportActivity"
+LAYOUT_DWG_ACTIVITY_ID = "LayoutDwgSplitActivity"
 BUNDLE_ALIAS = "prod"
 ACTIVITY_ALIAS = "prod"
 
@@ -130,6 +134,10 @@ def qualified_activity(nickname: str) -> str:
     return f"{nickname}.{ACTIVITY_ID}+{ACTIVITY_ALIAS}"
 
 
+def qualified_layout_dwg_activity(nickname: str) -> str:
+    return f"{nickname}.{LAYOUT_DWG_ACTIVITY_ID}+{ACTIVITY_ALIAS}"
+
+
 def activity_body(engine: str, nickname: str) -> dict[str, Any]:
     # Accoreconsole: path macros must be in double quotes. Build a normal Python string;
     # requests/json will escape quotes for JSON (do not use \\\" — that breaks DA validation).
@@ -166,6 +174,45 @@ def activity_body(engine: str, nickname: str) -> dict[str, Any]:
                 "description": "layer_pdfs.zip output",
                 "required": True,
                 "localName": "layer_pdfs.zip",
+            },
+        },
+        "engine": engine,
+        "appbundles": [qualified_appbundle(nickname)],
+    }
+
+
+def activity_body_layout_dwg_split(engine: str, nickname: str) -> dict[str, Any]:
+    cmd = (
+        '$(engine.path)\\accoreconsole.exe /al "$(appbundles[LayerPdfExport].path)" '
+        '/i "$(args[HostDwg].path)" '
+        '/s "$(appbundles[LayerPdfExport].path)\\Contents\\run_layout_dwgs.scr"'
+    )
+    return {
+        "id": LAYOUT_DWG_ACTIVITY_ID,
+        "commandLine": [cmd],
+        "parameters": {
+            "HostDwg": {
+                "verb": "get",
+                "description": "Input DWG",
+                "required": True,
+            },
+            "PluginDll": {
+                "verb": "get",
+                "description": "LayerPdfExport.dll (job folder; NETLOAD in run_layout_dwgs.scr)",
+                "required": True,
+                "localName": "LayerPdfExport.dll",
+            },
+            "PluginDeps": {
+                "verb": "get",
+                "description": "LayerPdfExport.deps.json next to the DLL",
+                "required": True,
+                "localName": "LayerPdfExport.deps.json",
+            },
+            "ResultZip": {
+                "verb": "put",
+                "description": "layout_dwgs.zip output",
+                "required": True,
+                "localName": "layout_dwgs.zip",
             },
         },
         "engine": engine,
@@ -274,9 +321,9 @@ def ensure_appbundle_alias(
     LOG.info("AppBundle alias %s → version %s", BUNDLE_ALIAS, version)
 
 
-def ensure_activity(token: str, region: str, engine: str, nickname: str) -> int:
+def ensure_activity_from_body(token: str, region: str, body: dict[str, Any]) -> int:
     base = da_base(region)
-    body = activity_body(engine, nickname)
+    activity_id = str(body["id"])
     r = requests.post(
         f"{base}/activities",
         headers={
@@ -288,9 +335,9 @@ def ensure_activity(token: str, region: str, engine: str, nickname: str) -> int:
         timeout=120,
     )
     if r.status_code == 409:
-        LOG.info("Activity %s exists; creating new version…", ACTIVITY_ID)
+        LOG.info("Activity %s exists; creating new version…", activity_id)
         ver_body = {k: v for k, v in body.items() if k != "id"}
-        r = post_json(token, f"{base}/activities/{ACTIVITY_ID}/versions", ver_body)
+        r = post_json(token, f"{base}/activities/{activity_id}/versions", ver_body)
     elif not r.ok:
         LOG.error("Create Activity failed: %s\n%s", r.status_code, r.text[:4000])
         r.raise_for_status()
@@ -298,14 +345,16 @@ def ensure_activity(token: str, region: str, engine: str, nickname: str) -> int:
         r.raise_for_status()
     data = r.json()
     ver = int(data.get("version", 1))
-    LOG.info("Activity version: %s", ver)
+    LOG.info("Activity %s version: %s", activity_id, ver)
     return ver
 
 
-def ensure_activity_alias(token: str, region: str, version: int) -> None:
+def ensure_activity_alias_for(
+    token: str, region: str, activity_id: str, version: int
+) -> None:
     base = da_base(region)
     auth = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    url = f"{base}/activities/{ACTIVITY_ID}/aliases"
+    url = f"{base}/activities/{activity_id}/aliases"
     r = requests.post(
         url,
         headers=auth,
@@ -313,12 +362,12 @@ def ensure_activity_alias(token: str, region: str, version: int) -> None:
         timeout=120,
     )
     if r.status_code == 409:
-        pu = f"{base}/activities/{ACTIVITY_ID}/aliases/{ACTIVITY_ALIAS}"
+        pu = f"{base}/activities/{activity_id}/aliases/{ACTIVITY_ALIAS}"
         r = requests.patch(pu, headers=auth, json={"version": version}, timeout=120)
         r.raise_for_status()
     else:
         r.raise_for_status()
-    LOG.info("Activity alias %s → version %s", ACTIVITY_ALIAS, version)
+    LOG.info("Activity %s alias %s → version %s", activity_id, ACTIVITY_ALIAS, version)
 
 
 def main() -> int:
@@ -351,6 +400,11 @@ def main() -> int:
         action="store_true",
         help="Print nickname, chosen engine, and qualified ids; no writes",
     )
+    ap.add_argument(
+        "--also-layout-dwg-activity",
+        action="store_true",
+        help="Also register/update LayoutDwgSplitActivity (run_layout_dwgs.scr → layout_dwgs.zip)",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     logging.basicConfig(
@@ -368,6 +422,7 @@ def main() -> int:
     LOG.info("Engine: %s", engine)
     LOG.info("Qualified AppBundle ref: %s", qualified_appbundle(nickname))
     LOG.info("Qualified Activity id: %s", qualified_activity(nickname))
+    LOG.info("Qualified layout-DWG Activity id: %s", qualified_layout_dwg_activity(nickname))
 
     if args.introspect:
         print(json.dumps(
@@ -376,15 +431,23 @@ def main() -> int:
                 "engine": engine,
                 "appbundle_ref": qualified_appbundle(nickname),
                 "activity_id": qualified_activity(nickname),
+                "layout_dwg_activity_id": qualified_layout_dwg_activity(nickname),
             },
             indent=2,
         ))
         return 0
 
     if args.skip_appbundle:
-        ver = ensure_activity(token, args.region, engine, nickname)
-        ensure_activity_alias(token, args.region, ver)
-        print(json.dumps({"activity_id": qualified_activity(nickname)}, indent=2))
+        body_pdf = activity_body(engine, nickname)
+        ver = ensure_activity_from_body(token, args.region, body_pdf)
+        ensure_activity_alias_for(token, args.region, ACTIVITY_ID, ver)
+        out: dict[str, Any] = {"activity_id": qualified_activity(nickname)}
+        if args.also_layout_dwg_activity:
+            body_dwg = activity_body_layout_dwg_split(engine, nickname)
+            ldver = ensure_activity_from_body(token, args.region, body_dwg)
+            ensure_activity_alias_for(token, args.region, LAYOUT_DWG_ACTIVITY_ID, ldver)
+            out["layout_dwg_activity_id"] = qualified_layout_dwg_activity(nickname)
+        print(json.dumps(out, indent=2))
         return 0
 
     if not args.bundle_zip or not args.bundle_zip.is_file():
@@ -394,14 +457,21 @@ def main() -> int:
     bundle_ver = create_appbundle_and_upload(token, args.region, engine, args.bundle_zip)
     ensure_appbundle_alias(token, args.region, bundle_ver)
 
-    act_ver = ensure_activity(token, args.region, engine, nickname)
-    ensure_activity_alias(token, args.region, act_ver)
+    body_pdf = activity_body(engine, nickname)
+    act_ver = ensure_activity_from_body(token, args.region, body_pdf)
+    ensure_activity_alias_for(token, args.region, ACTIVITY_ID, act_ver)
 
     out = {
         "appbundle_ref": qualified_appbundle(nickname),
         "activity_id": qualified_activity(nickname),
         "engine": engine,
     }
+    if args.also_layout_dwg_activity:
+        body_dwg = activity_body_layout_dwg_split(engine, nickname)
+        ldver = ensure_activity_from_body(token, args.region, body_dwg)
+        ensure_activity_alias_for(token, args.region, LAYOUT_DWG_ACTIVITY_ID, ldver)
+        out["layout_dwg_activity_id"] = qualified_layout_dwg_activity(nickname)
+
     print(json.dumps(out, indent=2))
     return 0
 

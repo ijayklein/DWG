@@ -28,6 +28,14 @@ the job folder, then invokes a C# command.
   `ExportFlatPdf`       — single PDF for one layout (first non-Model layout, or Model if none).
   `ExportLayerPdfs`     — one PDF per **layer** (isolates layers; uses layout vs model logic).
 
+**Layout → separate DWGs:** `ExportAllLayoutDwgs` (script **`Contents/run_layout_dwgs.scr`**)
+  writes one **.dwg** per paper layout via **`-EXPORTLAYOUT`** (after `LAYOUT` → `S`), zips to
+  **`layout_dwgs.zip`**. Each output is a new drawing whose **model space** holds that layout’s
+  sheet content (AutoCAD’s normal EXPORTLAYOUT behavior—not a copy of the paper-layout tab). If
+  the file has **no** paper layouts, it copies the host DWG once as **`model.dwg`**. Register
+  **LayoutDwgSplitActivity** with ``da_register_batch.py --also-layout-dwg-activity``; run with
+  **`da_layout_dwg_pipeline.py`** and **``DA_LAYOUT_DWG_ACTIVITY_ID``** (see script output).
+
 
 Repo layout
 -----------

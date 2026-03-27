@@ -1,0 +1,14 @@
+1. Copy your APS file from the parent DWG folder (or create one here):
+     cp ../.aps .aps
+   Format: client_credentials = 'CLIENT_ID:CLIENT_SECRET'
+
+2. Create a virtualenv and install deps:
+     python3 -m venv .venv
+     .venv/bin/pip install -r requirements.txt
+
+3. Run:
+     ./run_pipeline.sh
+   Or the manual command in README.md
+
+   Activity id defaults to DEFAULT_DA_ACTIVITY_ID in da_layer_pdf_pipeline.py
+   (no export needed). Full docs: README.md

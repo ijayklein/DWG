@@ -225,6 +225,74 @@ public class Commands
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({pdfCount} PDF file(s)).\n");
     }
 
+    /// <summary>
+    /// One DWG per paper layout via <c>-EXPORTLAYOUT</c> (after <c>LAYOUT</c> <c>S</c>): each file
+    /// contains that layout’s content recreated in <b>model space</b> (AutoCAD does not keep a paper
+    /// layout tab in the export). Named from the layout. Model-only drawings copy the host as
+    /// <c>model.dwg</c>. Zipped to <c>layout_dwgs.zip</c>.
+    /// </summary>
+    [CommandMethod("ExportAllLayoutDwgs", CommandFlags.Modal)]
+    public static void ExportAllLayoutDwgs()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("No active document.");
+        var db = doc.Database;
+        var ed = doc.Editor;
+
+        ed.WriteMessage("\n[LayerPdfExport] ExportAllLayoutDwgs — one DWG per layout tab.\n");
+
+        string dwgDir = Path.Combine(Directory.GetCurrentDirectory(), "_layoutdwg_out");
+        if (Directory.Exists(dwgDir))
+            Directory.Delete(dwgDir, true);
+        Directory.CreateDirectory(dwgDir);
+
+        ed.Command("._FILEDIA", "0");
+
+        var layouts = GetPaperLayoutNamesOrdered(db);
+        if (layouts.Count == 0)
+        {
+            ed.WriteMessage("\n[LayerPdfExport] No paper layouts — writing model.dwg (copy of input).\n");
+            string modelPath = Path.GetFullPath(Path.Combine(dwgDir, "model.dwg"));
+            if (File.Exists(modelPath))
+                File.Delete(modelPath);
+            string src = db.Filename;
+            if (string.IsNullOrWhiteSpace(src) || !File.Exists(src))
+                src = doc.Name;
+            if (string.IsNullOrWhiteSpace(src) || !File.Exists(src))
+                throw new InvalidOperationException("Cannot resolve source DWG path for model copy.");
+            File.Copy(src, modelPath, overwrite: true);
+            ed.WriteMessage($"\n[LayerPdfExport] model.dwg <- {src}\n");
+        }
+        else
+        {
+            ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
+            foreach (string layoutName in layouts)
+            {
+                ed.Command("._LAYOUT", "S", layoutName);
+                string safe = SanitizeFileName(layoutName);
+                string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
+                if (File.Exists(dwgPath))
+                    File.Delete(dwgPath);
+                // Current layout must be active. Export recreates sheet content in model space of new DWG.
+                ed.Command("._-EXPORTLAYOUT", dwgPath);
+                if (!File.Exists(dwgPath))
+                    ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\" -> {dwgPath}");
+                else
+                    ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}");
+            }
+        }
+
+        int dwgCount = Directory.GetFiles(dwgDir, "*.dwg", SearchOption.TopDirectoryOnly).Length;
+        if (dwgCount == 0)
+            throw new InvalidOperationException("No DWG files were produced.");
+
+        string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_dwgs.zip");
+        if (File.Exists(zipPath))
+            File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(dwgDir, zipPath);
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({dwgCount} DWG file(s)).\n");
+    }
+
     /// <summary>All non-Model layouts, sorted by name (stable; may differ from UI tab order).</summary>
     private static List<string> GetPaperLayoutNamesOrdered(Database db)
     {

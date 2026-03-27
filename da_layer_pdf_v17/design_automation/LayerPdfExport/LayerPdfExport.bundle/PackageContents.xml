@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0"
+  AutodeskProduct="AutoCAD"
+  Name="LayerPdfExport"
+  Description="Export one PDF per layer (Model); output zip"
+  Author="DWG"
+  AppVersion="1.0.0"
+  ProductCode="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
+  <CompanyDetails Name="Local" Url="https://aps.autodesk.com" Email="noreply@example.com" />
+  <Components>
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD" SeriesMin="R25.0" />
+    <ComponentEntry
+      AppName="LayerPdfExport"
+      ModuleName="./Contents/LayerPdfExport.dll"
+      AppDescription="Export one PDF per layer"
+      LoadOnCommandInvocation="True"
+      LoadOnAutoCADStartup="True">
+      <Commands GroupName="Commands">
+        <Command Local="ExportLayerPdfs" Global="ExportLayerPdfs" />
+        <Command Local="ExportFlatPdf" Global="ExportFlatPdf" />
+        <Command Local="ExportAllLayoutPdfs" Global="ExportAllLayoutPdfs" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>

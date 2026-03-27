@@ -1,0 +1,6 @@
+.aps
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+_da_v17_run/

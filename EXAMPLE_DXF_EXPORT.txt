@@ -1,0 +1,16 @@
+example.dxf — export before marking
+====================================
+
+The Python tools read DXF, not binary DWG. To merge markers *into* the same
+drawing as example.dwg:
+
+1. Open example.dwg in AutoCAD (or BricsCAD, etc.).
+2. SAVEAS (or Export) → format: DXF → save as example.dxf next to example.dwg.
+3. Preview the DXF (optional):
+     .venv/bin/python show_dxf_summary.py example.dxf
+4. Merge JSON markers:
+     ./mark_example_entities.sh
+   → writes example_marked.dxf
+
+If you skip step 2, mark_example_entities.sh still writes example_entity_markers.dxf
+for overlay/XREF on example.dwg at 0,0,0.

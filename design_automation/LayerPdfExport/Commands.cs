@@ -273,7 +273,7 @@ public class Commands
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
             foreach (string layoutName in layouts)
             {
-                ActivatePaperLayout(db, layoutName, waitMs: 800);
+                ActivatePaperLayout(db, layoutName);
                 ed.Command("._-ZOOM", "Extents");
 
                 string safe = SanitizeFileName(layoutName);

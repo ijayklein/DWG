@@ -273,11 +273,10 @@ public class Commands
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
             foreach (string layoutName in layouts)
             {
-                // Same navigation as ExportAllLayoutPdfs; then write a new DWG for this layout.
-                // Note: -EXPORT → PDF/DWF is not “DWG without PDF” — DWG needs a different command
-                // (-EXPORTLAYOUT creates a new drawing from the current layout).
+                // Activate layout only. Do not run ZOOM here: on paper space AcCore often treats
+                // ZOOM E as window-zoom (“Specify corner…”), which breaks before -EXPORTLAYOUT.
+                // (-EXPORTLAYOUT does not depend on the current view the way -EXPORT PDF Current does.)
                 ActivatePaperLayout(db, layoutName);
-                ed.Command("._ZOOM", "E");
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));

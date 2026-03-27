@@ -268,10 +268,10 @@ public class Commands
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
             foreach (string layoutName in layouts)
             {
-                // Match ExportAllLayoutPdfs: command-line layout switch + ZOOM E lets AcCore finish
-                // viewport regen before EXPORTLAYOUT (without ZOOM E, example.dwg crashed in DA).
+                // LAYOUT S, then regen. (On paper space, ed.Command ZOOM E can stall on “Specify corner…”
+                // in AcCore; REGEN finishes viewport/layout rebuild before EXPORTLAYOUT.)
                 ed.Command("._LAYOUT", "S", layoutName);
-                ed.Command("._ZOOM", "E");
+                ed.Command("._REGEN");
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));

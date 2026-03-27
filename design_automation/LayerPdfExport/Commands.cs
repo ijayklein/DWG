@@ -371,14 +371,7 @@ public class Commands
 
         ed.Command("._FILEDIA", "0");
 
-        var nonTargetLayouts = allLayouts
-            .Where(n => !string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        var layoutEntityMap = BuildLayoutEntityMap(db, nonTargetLayouts);
-        var idsToErase = layoutEntityMap.Values.SelectMany(x => x).ToList();
-        EraseObjectIds(db, idsToErase);
-
-        // Clip model space: erase entities outside the target layout's viewport extents.
+        // Clip model space first (while all layouts are still present so viewport extents are readable).
         var vpExtents = GetViewportModelSpaceExtents(db, layoutName);
         if (vpExtents.Count > 0)
         {
@@ -390,6 +383,23 @@ public class Commands
         {
             ed.WriteMessage("\n[LayerPdfExport] No viewports found — model space kept intact.\n");
         }
+
+        // Delete all non-target layouts so they do not appear as (empty) tabs in the output DWG.
+        var nonTargetLayouts = allLayouts
+            .Where(n => !string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (string nonTarget in nonTargetLayouts)
+        {
+            try
+            {
+                LayoutManager.Current.DeleteLayout(nonTarget);
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception ex)
+            {
+                ed.WriteMessage($"\n[LayerPdfExport] Warning: could not delete layout \"{nonTarget}\": {ex.Message}\n");
+            }
+        }
+        ed.WriteMessage($"\n[LayerPdfExport] Deleted {nonTargetLayouts.Count} non-target layout(s).\n");
 
         ActivatePaperLayout(db, layoutName);
         ed.Command("._ZOOM", "E");

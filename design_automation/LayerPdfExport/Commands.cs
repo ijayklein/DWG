@@ -268,11 +268,10 @@ public class Commands
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
             foreach (string layoutName in layouts)
             {
-                // Avoid LAYOUT command-line switch — AcCoreConsole can crash during viewport regen.
-                // Do not call LockDocument() here: command handlers are already document-locked;
-                // nesting LockDocument has crashed AcCore on heavy layouts.
-                db.TileMode = false;
-                LayoutManager.Current.CurrentLayout = layoutName;
+                // Match ExportAllLayoutPdfs: command-line layout switch + ZOOM E lets AcCore finish
+                // viewport regen before EXPORTLAYOUT (without ZOOM E, example.dwg crashed in DA).
+                ed.Command("._LAYOUT", "S", layoutName);
+                ed.Command("._ZOOM", "E");
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));

@@ -301,7 +301,11 @@ public class Commands
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({dwgCount} DWG file(s)).\n");
     }
 
-    /// <summary>All non-Model layouts, sorted by name (stable; may differ from UI tab order).</summary>
+    /// <summary>
+    /// All non-Model layouts in <b>layout dictionary order</b> (usually the same as layout tab
+    /// order). Do not sort alphabetically: that can reorder tabs and activate a heavy layout first,
+    /// which has crashed AcCoreConsole on some DWGs during regen.
+    /// </summary>
     private static List<string> GetPaperLayoutNamesOrdered(Database db)
     {
         var list = new List<string>();
@@ -314,7 +318,6 @@ public class Commands
         }
 
         tr.Commit();
-        list.Sort(StringComparer.OrdinalIgnoreCase);
         return list;
     }
 

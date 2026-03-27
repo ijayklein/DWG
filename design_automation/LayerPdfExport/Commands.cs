@@ -2,6 +2,7 @@ using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Runtime;
 using System.Globalization;
 using System.IO.Compression;
@@ -227,10 +228,9 @@ public class Commands
     }
 
     /// <summary>
-    /// One DWG per paper layout. Matches <see cref="ExportAllLayoutPdfs"/> layout activation
-    /// (<see cref="ActivatePaperLayout"/> + <c>ZOOM E</c>), but AutoCAD has no <c>-EXPORT</c> → DWG for “current
-    /// layout”; this command uses <c>-EXPORTLAYOUT</c> to create a new drawing from the active
-    /// layout (sheet content to model space per AutoCAD). Model-only drawings copy the host as
+    /// One DWG per paper layout via <see cref="ExportLayoutToNewDrawing"/> (clone paperspace +
+    /// plot settings into a new drawing’s <c>Layout1</c>) — no per-layout tab activation or
+    /// <c>-EXPORTLAYOUT</c>, which is unstable in some AcCoreConsole runs. Model-only drawings copy the host as
     /// <c>model.dwg</c>. Zipped to <c>layout_dwgs.zip</c>.
     /// </summary>
     [CommandMethod("ExportAllLayoutDwgs", CommandFlags.Modal)]
@@ -273,15 +273,12 @@ public class Commands
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
             foreach (string layoutName in layouts)
             {
-                ActivatePaperLayout(db, layoutName);
-                // Paper: ZOOM E is ambiguous; -ZOOM Extents matches the Extents branch AcCore prints for “E”.
-                ed.Command("._-ZOOM", "Extents");
-
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
                 if (File.Exists(dwgPath))
                     File.Delete(dwgPath);
-                ed.Command("._-EXPORTLAYOUT", dwgPath);
+                // Avoid per-layout tab activation + -EXPORTLAYOUT (viewport regen / AcCore AV on some DWGs).
+                ExportLayoutToNewDrawing(doc, layoutName, dwgPath);
 
                 if (!File.Exists(dwgPath))
                     ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\" -> {dwgPath}");
@@ -299,6 +296,75 @@ public class Commands
             File.Delete(zipPath);
         ZipFile.CreateFromDirectory(dwgDir, zipPath);
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({dwgCount} DWG file(s)).\n");
+    }
+
+    /// <summary>
+    /// Clone one paperspace layout into a fresh drawing’s <c>Layout1</c> without activating that tab
+    /// in the host (avoids AcCore viewport regen crashes). Based on Autodesk WblockCloneObjects sample.
+    /// </summary>
+    private static void ExportLayoutToNewDrawing(Document doc, string layoutName, string dwgPath)
+    {
+        var sourceDb = doc.Database;
+        Database oldWdb = HostApplicationServices.WorkingDatabase;
+        try
+        {
+            using var destDb = new Database(true, false);
+            using (var destTr = destDb.TransactionManager.StartTransaction())
+            {
+                HostApplicationServices.WorkingDatabase = destDb;
+                var destLayoutDic = (DBDictionary)destTr.GetObject(destDb.LayoutDictionaryId, OpenMode.ForRead);
+                ObjectId destLayoutId = destLayoutDic.GetAt("Layout1");
+                var destLayout = (Layout)destTr.GetObject(destLayoutId, OpenMode.ForWrite);
+
+                HostApplicationServices.WorkingDatabase = sourceDb;
+                using (var srcTr = sourceDb.TransactionManager.StartTransaction())
+                {
+                    var srcDict = (DBDictionary)srcTr.GetObject(sourceDb.LayoutDictionaryId, OpenMode.ForRead);
+                    if (!srcDict.Contains(layoutName))
+                        throw new InvalidOperationException($"Layout not found: {layoutName}");
+                    ObjectId srcLayoutId = srcDict.GetAt(layoutName);
+                    var srcLayout = (Layout)srcTr.GetObject(srcLayoutId, OpenMode.ForRead);
+                    destLayout.CopyFrom(srcLayout);
+
+                    HostApplicationServices.WorkingDatabase = destDb;
+                    var destBtr = (BlockTableRecord)destTr.GetObject(destLayout.BlockTableRecordId, OpenMode.ForWrite);
+                    var eraseIds = new ObjectIdCollection();
+                    foreach (ObjectId oid in destBtr)
+                        eraseIds.Add(oid);
+                    for (int i = 0; i < eraseIds.Count; i++)
+                    {
+                        ObjectId oid = eraseIds[i];
+                        if (!oid.IsValid)
+                            continue;
+                        if (destTr.GetObject(oid, OpenMode.ForWrite) is Entity ent)
+                            ent.Erase();
+                    }
+
+                    HostApplicationServices.WorkingDatabase = sourceDb;
+                    var srcBtr = (BlockTableRecord)srcTr.GetObject(srcLayout.BlockTableRecordId, OpenMode.ForRead);
+                    var cloneIds = new ObjectIdCollection();
+                    foreach (ObjectId oid in srcBtr)
+                        cloneIds.Add(oid);
+                    var idMap = new IdMapping();
+                    destDb.WblockCloneObjects(
+                        cloneIds,
+                        destLayout.BlockTableRecordId,
+                        idMap,
+                        DuplicateRecordCloning.Ignore,
+                        false);
+                    srcTr.Commit();
+                }
+
+                HostApplicationServices.WorkingDatabase = destDb;
+                destTr.Commit();
+            }
+
+            destDb.SaveAs(dwgPath, DwgVersion.Newest);
+        }
+        finally
+        {
+            HostApplicationServices.WorkingDatabase = oldWdb;
+        }
     }
 
     /// <summary>

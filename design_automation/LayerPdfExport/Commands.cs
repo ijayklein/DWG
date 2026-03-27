@@ -274,13 +274,28 @@ public class Commands
             foreach (string layoutName in layouts)
             {
                 ActivatePaperLayout(db, layoutName);
-                ed.Command("._-ZOOM", "E");
-
                 string safe = SanitizeFileName(layoutName);
+                // Prime paper layout with -EXPORT PDF Current (no ZOOM: ZOOM E prompts “corner” here on some DWGs).
+                string flushPdf = Path.GetFullPath(Path.Combine(dwgDir, $"__flush_{safe}.pdf"));
+                if (File.Exists(flushPdf))
+                    File.Delete(flushPdf);
+                CommandExportPdf(ed, true, flushPdf);
+
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
                 if (File.Exists(dwgPath))
                     File.Delete(dwgPath);
                 ed.Command("._-EXPORTLAYOUT", dwgPath);
+                if (File.Exists(flushPdf))
+                {
+                    try
+                    {
+                        File.Delete(flushPdf);
+                    }
+                    catch (IOException)
+                    {
+                    }
+                }
+
                 if (!File.Exists(dwgPath))
                     ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\" -> {dwgPath}");
                 else

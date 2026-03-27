@@ -6,6 +6,7 @@ using Autodesk.AutoCAD.Runtime;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 [assembly: CommandClass(typeof(LayerPdfExport.Commands))]
 [assembly: ExtensionApplication(typeof(LayerPdfExport.PluginApp))]
@@ -200,8 +201,8 @@ public class Commands
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export.\n");
             foreach (string layoutName in layouts)
             {
-                ed.Command("._LAYOUT", "S", layoutName);
-                ed.Command("._-ZOOM", "Extents");
+                ActivatePaperLayout(db, layoutName);
+                ed.Command("._ZOOM", "E");
                 string safe = SanitizeFileName(layoutName);
                 string pdfPath = Path.GetFullPath(Path.Combine(pdfDir, $"{safe}.pdf"));
                 if (File.Exists(pdfPath))
@@ -226,8 +227,8 @@ public class Commands
     }
 
     /// <summary>
-    /// One DWG per paper layout. Uses the same <c>LAYOUT S</c> / <c>-ZOOM Extents</c> sequence as
-    /// <see cref="ExportAllLayoutPdfs"/>, but AutoCAD has no <c>-EXPORT</c> → DWG for “current
+    /// One DWG per paper layout. Matches <see cref="ExportAllLayoutPdfs"/> layout activation
+    /// (<see cref="ActivatePaperLayout"/> + <c>ZOOM E</c>), but AutoCAD has no <c>-EXPORT</c> → DWG for “current
     /// layout”; this command uses <c>-EXPORTLAYOUT</c> to create a new drawing from the active
     /// layout (sheet content to model space per AutoCAD). Model-only drawings copy the host as
     /// <c>model.dwg</c>. Zipped to <c>layout_dwgs.zip</c>.
@@ -275,8 +276,8 @@ public class Commands
                 // Same navigation as ExportAllLayoutPdfs; then write a new DWG for this layout.
                 // Note: -EXPORT → PDF/DWF is not “DWG without PDF” — DWG needs a different command
                 // (-EXPORTLAYOUT creates a new drawing from the current layout).
-                ed.Command("._LAYOUT", "S", layoutName);
-                ed.Command("._-ZOOM", "Extents");
+                ActivatePaperLayout(db, layoutName);
+                ed.Command("._ZOOM", "E");
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
@@ -351,9 +352,20 @@ public class Commands
             return (false, null);
         }
 
-        ed.Command("._LAYOUT", "S", paper);
+        ActivatePaperLayout(db, paper);
         ed.WriteMessage($"\n[LayerPdfExport] Canvas: paper layout \"{paper}\".\n");
         return (true, paper);
+    }
+
+    /// <summary>
+    /// Paper layout switch via API + <see cref="Database.TileMode"/>false; avoids AcCore crashes
+    /// during viewport regen after <c>LAYOUT S</c> on some DWGs (command-line switch is less stable in DA).
+    /// </summary>
+    private static void ActivatePaperLayout(Database db, string layoutName)
+    {
+        db.TileMode = false;
+        Autodesk.AutoCAD.ApplicationServices.LayoutManager.Current.CurrentLayout = layoutName;
+        Thread.Sleep(150);
     }
 
     /// <summary>First non-Model layout; prefers Layout1 when present (common default tab).</summary>

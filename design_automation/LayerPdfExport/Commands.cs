@@ -271,6 +271,16 @@ public class Commands
                 if (layoutEntityMap.TryGetValue(layoutName, out var targetIds) && targetIds.Count > 0)
                     UnEraseObjectIds(db, targetIds);
 
+                // Clip model space to entities within this layout's viewport(s).
+                var vpExtents = GetViewportModelSpaceExtents(db, layoutName);
+                List<ObjectId> modelErased = new();
+                if (vpExtents.Count > 0)
+                {
+                    modelErased = CollectModelSpaceEntitiesToErase(db, vpExtents);
+                    EraseObjectIds(db, modelErased);
+                    ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\": erased {modelErased.Count} model space entities outside viewport(s).\n");
+                }
+
                 ActivatePaperLayout(db, layoutName);
                 ed.Command("._ZOOM", "E");
 
@@ -279,6 +289,10 @@ public class Commands
                 if (File.Exists(dwgPath))
                     File.Delete(dwgPath);
                 ed.Command("._-WBLOCK", dwgPath, "*");
+
+                // Restore model space entities for next iteration.
+                if (modelErased.Count > 0)
+                    UnEraseObjectIds(db, modelErased);
 
                 if (targetIds != null && targetIds.Count > 0)
                     EraseObjectIds(db, targetIds);
@@ -363,6 +377,19 @@ public class Commands
         var layoutEntityMap = BuildLayoutEntityMap(db, nonTargetLayouts);
         var idsToErase = layoutEntityMap.Values.SelectMany(x => x).ToList();
         EraseObjectIds(db, idsToErase);
+
+        // Clip model space: erase entities outside the target layout's viewport extents.
+        var vpExtents = GetViewportModelSpaceExtents(db, layoutName);
+        if (vpExtents.Count > 0)
+        {
+            var modelToErase = CollectModelSpaceEntitiesToErase(db, vpExtents);
+            EraseObjectIds(db, modelToErase);
+            ed.WriteMessage($"\n[LayerPdfExport] Erased {modelToErase.Count} model space entities outside viewport(s).\n");
+        }
+        else
+        {
+            ed.WriteMessage("\n[LayerPdfExport] No viewports found — model space kept intact.\n");
+        }
 
         ActivatePaperLayout(db, layoutName);
         ed.Command("._ZOOM", "E");
@@ -741,5 +768,83 @@ public class Commands
 
     private static string SanitizeFileName(string name) =>
         Regex.Replace(name, @"[^\w\.\-]", "_", RegexOptions.None, TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// Returns the axis-aligned bounding boxes (in model space coordinates) of every
+    /// non-overall viewport found in the named layout. Accounts for ViewCenter, ViewHeight,
+    /// Width/Height aspect ratio, and ViewTwist. A 5 % buffer is added around each extent
+    /// so that entities sitting exactly on a viewport boundary are not accidentally clipped.
+    /// </summary>
+    private static List<Extents3d> GetViewportModelSpaceExtents(Database db, string layoutName)
+    {
+        var extents = new List<Extents3d>();
+        using var tr = db.TransactionManager.StartTransaction();
+        var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        if (!dict.Contains(layoutName)) { tr.Commit(); return extents; }
+        var layout = (Layout)tr.GetObject(dict.GetAt(layoutName), OpenMode.ForRead);
+        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+        foreach (ObjectId id in btr)
+        {
+            var vp = tr.GetObject(id, OpenMode.ForRead) as Viewport;
+            if (vp == null || vp.Number == 1) continue; // skip the overall paper viewport
+            double cx = vp.ViewCenter.X, cy = vp.ViewCenter.Y;
+            double halfH = vp.ViewHeight / 2.0;
+            double halfW = halfH * (vp.Width / vp.Height);
+            double twist = vp.ViewTwist;
+            double cosT = Math.Cos(twist), sinT = Math.Sin(twist);
+            // Rotate all four corners and compute their AABB.
+            double[] dxs = { -halfW,  halfW,  halfW, -halfW };
+            double[] dys = { -halfH, -halfH,  halfH,  halfH };
+            double minX = double.MaxValue, maxX = double.MinValue;
+            double minY = double.MaxValue, maxY = double.MinValue;
+            for (int i = 0; i < 4; i++)
+            {
+                double rx = cx + dxs[i] * cosT - dys[i] * sinT;
+                double ry = cy + dxs[i] * sinT + dys[i] * cosT;
+                if (rx < minX) minX = rx; if (rx > maxX) maxX = rx;
+                if (ry < minY) minY = ry; if (ry > maxY) maxY = ry;
+            }
+            double bx = (maxX - minX) * 0.05;
+            double by = (maxY - minY) * 0.05;
+            extents.Add(new Extents3d(
+                new Point3d(minX - bx, minY - by, double.MinValue / 2),
+                new Point3d(maxX + bx, maxY + by, double.MaxValue / 2)));
+        }
+        tr.Commit();
+        return extents;
+    }
+
+    /// <summary>
+    /// Returns ObjectIds of model space entities whose bounding box does not intersect
+    /// any of the supplied <paramref name="keepExtents"/>. Those entities belong to a
+    /// different floor plan and should be erased before exporting the current layout.
+    /// Entities with no computable extents (XLines, Rays, etc.) are conservatively kept.
+    /// </summary>
+    private static List<ObjectId> CollectModelSpaceEntitiesToErase(
+        Database db, List<Extents3d> keepExtents)
+    {
+        var toErase = new List<ObjectId>();
+        using var tr = db.TransactionManager.StartTransaction();
+        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+        var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+        foreach (ObjectId id in ms)
+        {
+            if (id.IsErased) continue;
+            var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+            if (ent == null) continue;
+            bool keep = false;
+            try
+            {
+                var ext = ent.GeometricExtents;
+                keep = keepExtents.Any(vp =>
+                    ext.MinPoint.X <= vp.MaxPoint.X && ext.MaxPoint.X >= vp.MinPoint.X &&
+                    ext.MinPoint.Y <= vp.MaxPoint.Y && ext.MaxPoint.Y >= vp.MinPoint.Y);
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception) { keep = true; }
+            if (!keep) toErase.Add(id);
+        }
+        tr.Commit();
+        return toErase;
+    }
 }
 }

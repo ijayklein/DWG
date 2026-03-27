@@ -378,11 +378,6 @@ public class Commands
         // every layer in the drawing.  Paperspace entities survive WBLOCK * intact.
         PinAllLayersViaPaperspace(db, layoutName);
 
-        // Clear per-viewport layer freezes on the target layout's viewports.
-        // The source DWG typically VP-froze many layers in each viewport to hide other floor
-        // plans; those states would survive into the output and make layers appear inaccessible.
-        ClearViewportLayerFreezes(db, layoutName);
-
         // Clip model space (viewport extents must be read before any layouts are deleted).
         var vpExtents = GetViewportModelSpaceExtents(db, layoutName);
         if (vpExtents.Count > 0)
@@ -408,6 +403,13 @@ public class Commands
         // layout first ensures every non-target layout is deletable.
         ActivatePaperLayout(db, layoutName);
         ed.Command("._ZOOM", "E");
+
+        // Clear per-viewport layer freezes — the source DWG VP-froze many layers in each
+        // viewport to hide other floor plans' content; those states survive into the output and
+        // make layers appear inaccessible (hover-highlight and LAYOFF don't respond).
+        // The model-space clip already removed the unwanted geometry, so VP-freezes serve no
+        // purpose and only break the layer workflow.
+        ClearViewportLayerFreezes(ed);
 
         // Delete non-target layouts so they do not appear as (empty) tabs in the output DWG.
         int deleted = 0;
@@ -831,28 +833,21 @@ public class Commands
     }
 
     /// <summary>
-    /// Removes all per-viewport layer freezes from every viewport in the named layout.
-    /// <para>
-    /// The source DWG typically has many layers VP-frozen in each viewport to hide geometry from
-    /// other floor plans.  After splitting, those frozen states make layers appear inaccessible
-    /// (hover-highlight and LAYOFF don't respond).  Clearing them lets every layer be interactive
-    /// in the single-layout output — the model-space clip already removed the unwanted geometry.
-    /// </para>
+    /// Thaws all layers in all viewports of the named layout using the VPLAYER command.
+    /// Must be called while the target layout is already the active layout (paperspace).
     /// </summary>
-    private static void ClearViewportLayerFreezes(Database db, string layoutName)
+    private static void ClearViewportLayerFreezes(Editor ed)
     {
-        using var tr = db.TransactionManager.StartTransaction();
-        var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
-        if (!dict.Contains(layoutName)) { tr.Commit(); return; }
-        var layout = (Layout)tr.GetObject(dict.GetAt(layoutName), OpenMode.ForRead);
-        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-        foreach (ObjectId id in btr)
+        // VPLAYER Thaw * in all viewports.
+        // Prompt sequence: option → layer pattern → viewport selection ("A" = All).
+        try
         {
-            var vp = tr.GetObject(id, OpenMode.ForWrite) as Viewport;
-            if (vp == null || vp.Number == 1) continue;
-            vp.FrozenLayersCollection = new ObjectIdCollection();
+            ed.Command("._VPLAYER", "T", "*", "A", "");
         }
-        tr.Commit();
+        catch (System.Exception ex)
+        {
+            ed.WriteMessage($"\n[LayerPdfExport] Warning: VPLAYER thaw failed: {ex.Message}\n");
+        }
     }
 
     private static string SanitizeFileName(string name) =>

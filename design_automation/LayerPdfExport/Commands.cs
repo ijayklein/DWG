@@ -364,7 +364,7 @@ public class Commands
     private static void ActivatePaperLayout(Database db, string layoutName)
     {
         db.TileMode = false;
-        Autodesk.AutoCAD.ApplicationServices.LayoutManager.Current.CurrentLayout = layoutName;
+        LayoutManager.Current.CurrentLayout = layoutName;
         Thread.Sleep(150);
     }
 

@@ -201,7 +201,7 @@ public class Commands
             foreach (string layoutName in layouts)
             {
                 ed.Command("._LAYOUT", "S", layoutName);
-                ed.Command("._ZOOM", "E");
+                ed.Command("._-ZOOM", "Extents");
                 string safe = SanitizeFileName(layoutName);
                 string pdfPath = Path.GetFullPath(Path.Combine(pdfDir, $"{safe}.pdf"));
                 if (File.Exists(pdfPath))
@@ -226,7 +226,7 @@ public class Commands
     }
 
     /// <summary>
-    /// One DWG per paper layout. Uses the same <c>LAYOUT S</c> / <c>ZOOM E</c> sequence as
+    /// One DWG per paper layout. Uses the same <c>LAYOUT S</c> / <c>-ZOOM Extents</c> sequence as
     /// <see cref="ExportAllLayoutPdfs"/>, but AutoCAD has no <c>-EXPORT</c> → DWG for “current
     /// layout”; this command uses <c>-EXPORTLAYOUT</c> to create a new drawing from the active
     /// layout (sheet content to model space per AutoCAD). Model-only drawings copy the host as
@@ -276,7 +276,7 @@ public class Commands
                 // Note: -EXPORT → PDF/DWF is not “DWG without PDF” — DWG needs a different command
                 // (-EXPORTLAYOUT creates a new drawing from the current layout).
                 ed.Command("._LAYOUT", "S", layoutName);
-                ed.Command("._ZOOM", "E");
+                ed.Command("._-ZOOM", "Extents");
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));

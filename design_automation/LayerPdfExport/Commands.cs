@@ -790,7 +790,7 @@ public class Commands
             double cx = vp.ViewCenter.X, cy = vp.ViewCenter.Y;
             double halfH = vp.ViewHeight / 2.0;
             double halfW = halfH * (vp.Width / vp.Height);
-            double twist = vp.ViewTwist;
+            double twist = vp.TwistAngle;
             double cosT = Math.Cos(twist), sinT = Math.Sin(twist);
             // Rotate all four corners and compute their AABB.
             double[] dxs = { -halfW,  halfW,  halfW, -halfW };

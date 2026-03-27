@@ -1,3 +1,4 @@
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -6,6 +7,7 @@ using Autodesk.AutoCAD.Runtime;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 [assembly: CommandClass(typeof(LayerPdfExport.Commands))]
 [assembly: ExtensionApplication(typeof(LayerPdfExport.PluginApp))]
@@ -266,19 +268,26 @@ public class Commands
         else
         {
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
-            foreach (string layoutName in layouts)
+            using (doc.LockDocument())
             {
-                ed.Command("._LAYOUT", "S", layoutName);
-                string safe = SanitizeFileName(layoutName);
-                string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
-                if (File.Exists(dwgPath))
-                    File.Delete(dwgPath);
-                // Current layout must be active. Export recreates sheet content in model space of new DWG.
-                ed.Command("._-EXPORTLAYOUT", dwgPath);
-                if (!File.Exists(dwgPath))
-                    ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\" -> {dwgPath}");
-                else
-                    ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}");
+                foreach (string layoutName in layouts)
+                {
+                    // Avoid LAYOUT command-line switch — on some DWGs AcCoreConsole crashes during
+                    // viewport regen after LAYOUT S. API switch + paper space is more stable in DA.
+                    db.TileMode = false;
+                    LayoutManager.Current.CurrentLayout = layoutName;
+                    Thread.Sleep(150);
+
+                    string safe = SanitizeFileName(layoutName);
+                    string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
+                    if (File.Exists(dwgPath))
+                        File.Delete(dwgPath);
+                    ed.Command("._-EXPORTLAYOUT", dwgPath);
+                    if (!File.Exists(dwgPath))
+                        ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\" -> {dwgPath}");
+                    else
+                        ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}");
+                }
             }
         }
 

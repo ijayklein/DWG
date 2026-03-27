@@ -274,8 +274,8 @@ public class Commands
             foreach (string layoutName in layouts)
             {
                 ActivatePaperLayout(db, layoutName);
+                ed.Command("._ZOOM", "E");
                 string safe = SanitizeFileName(layoutName);
-                // Prime paper layout with -EXPORT PDF Current (no ZOOM: ZOOM E prompts “corner” here on some DWGs).
                 string flushPdf = Path.GetFullPath(Path.Combine(dwgDir, $"__flush_{safe}.pdf"));
                 if (File.Exists(flushPdf))
                     File.Delete(flushPdf);

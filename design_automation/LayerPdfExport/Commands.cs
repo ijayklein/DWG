@@ -216,9 +216,11 @@ public class Commands
     }
 
     /// <summary>
-    /// One DWG per paper layout via <see cref="ExportLayoutViaWblock"/> — pure managed API, no
-    /// layout tab activation, no <c>-EXPORTLAYOUT</c> command. Model-only drawings copy the host as
-    /// <c>model.dwg</c>. Zipped to <c>layout_dwgs.zip</c>.
+    /// One DWG per paper layout via <see cref="ExportLayoutViaClone"/> — clones the full database
+    /// and deletes other layouts, preserving model space + one layout tab with all geometry and
+    /// semantic data. Zipped to <c>layout_dwgs.zip</c>.
+    /// <para>This is the <b>full-fidelity</b> option. For a lightweight paperspace-only extract,
+    /// see <see cref="ExportAllLayoutDwgsWblock"/>.</para>
     /// </summary>
     [CommandMethod("ExportAllLayoutDwgs", CommandFlags.Modal)]
     public static void ExportAllLayoutDwgs()
@@ -263,7 +265,7 @@ public class Commands
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
                 if (File.Exists(dwgPath))
                     File.Delete(dwgPath);
-                ExportLayoutViaWblock(db, layoutName, dwgPath);
+                ExportLayoutViaClone(db, layoutName, dwgPath);
 
                 if (!File.Exists(dwgPath))
                     ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\" -> {dwgPath}");
@@ -325,9 +327,6 @@ public class Commands
 
         ed.WriteMessage($"\n[LayerPdfExport] ExportSingleLayoutDwg — layout \"{layoutName}\".\n");
 
-        SetAllLayersOffState(db, null, false);
-        ed.Command("._FILEDIA", "0");
-
         var allLayouts = GetPaperLayoutNamesOrdered(db);
         if (!allLayouts.Any(n => string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException($"Layout \"{layoutName}\" not found in DWG (have: {string.Join(", ", allLayouts)}).");
@@ -337,17 +336,12 @@ public class Commands
             Directory.Delete(dwgDir, true);
         Directory.CreateDirectory(dwgDir);
 
-        ActivatePaperLayout(db, layoutName);
-        ed.Command("._ZOOM", "E");
-
         string safe = SanitizeFileName(layoutName);
         string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
-        if (File.Exists(dwgPath))
-            File.Delete(dwgPath);
-        ed.Command("._-EXPORTLAYOUT", dwgPath);
+        ExportLayoutViaClone(db, layoutName, dwgPath);
 
         if (!File.Exists(dwgPath))
-            throw new InvalidOperationException($"-EXPORTLAYOUT did not produce {dwgPath}");
+            throw new InvalidOperationException($"Clone did not produce {dwgPath}");
         ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}\n");
 
         string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_dwgs.zip");
@@ -355,6 +349,115 @@ public class Commands
             File.Delete(zipPath);
         ZipFile.CreateFromDirectory(dwgDir, zipPath);
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath}\n");
+    }
+
+    /// <summary>
+    /// Lightweight variant: one DWG per layout via <see cref="ExportLayoutViaWblock"/> (paperspace
+    /// entities only, no model space). Zipped to <c>layout_dwgs.zip</c>.
+    /// </summary>
+    [CommandMethod("ExportAllLayoutDwgsWblock", CommandFlags.Modal)]
+    public static void ExportAllLayoutDwgsWblock()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("No active document.");
+        var db = doc.Database;
+        var ed = doc.Editor;
+
+        ed.WriteMessage("\n[LayerPdfExport] ExportAllLayoutDwgsWblock — paperspace-only, one DWG per layout.\n");
+        SetAllLayersOffState(db, null, false);
+
+        string dwgDir = Path.Combine(Directory.GetCurrentDirectory(), "_layoutdwg_out");
+        if (Directory.Exists(dwgDir))
+            Directory.Delete(dwgDir, true);
+        Directory.CreateDirectory(dwgDir);
+
+        ed.Command("._FILEDIA", "0");
+
+        var layouts = GetPaperLayoutNamesOrdered(db);
+        if (layouts.Count == 0)
+        {
+            string src = db.Filename;
+            if (string.IsNullOrWhiteSpace(src) || !File.Exists(src))
+                src = doc.Name;
+            string modelPath = Path.GetFullPath(Path.Combine(dwgDir, "model.dwg"));
+            File.Copy(src, modelPath, overwrite: true);
+        }
+        else
+        {
+            foreach (string layoutName in layouts)
+            {
+                string safe = SanitizeFileName(layoutName);
+                string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
+                ExportLayoutViaWblock(db, layoutName, dwgPath);
+                ed.WriteMessage(File.Exists(dwgPath)
+                    ? $"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}"
+                    : $"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\"");
+            }
+        }
+
+        int dwgCount = Directory.GetFiles(dwgDir, "*.dwg", SearchOption.TopDirectoryOnly).Length;
+        if (dwgCount == 0)
+            throw new InvalidOperationException("No DWG files were produced.");
+        string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_dwgs.zip");
+        if (File.Exists(zipPath))
+            File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(dwgDir, zipPath);
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({dwgCount} DWG file(s)).\n");
+    }
+
+    /// <summary>
+    /// Clone the source DWG, delete every layout except <paramref name="layoutName"/> (and Model),
+    /// SaveAs. The output preserves all model space geometry, blocks, layers, and the single
+    /// layout tab with its viewports — full fidelity, no regen, no commands.
+    /// </summary>
+    private static void ExportLayoutViaClone(Database sourceDb, string layoutName, string dwgPath)
+    {
+        string srcPath = sourceDb.Filename;
+        if (string.IsNullOrWhiteSpace(srcPath) || !File.Exists(srcPath))
+            throw new InvalidOperationException("Cannot resolve source DWG file path for clone.");
+
+        using var cloneDb = new Database(false, true);
+        cloneDb.ReadDwgFile(srcPath, FileShare.Read, allowCPConversion: true, password: "");
+
+        using (var tr = cloneDb.TransactionManager.StartTransaction())
+        {
+            var dict = (DBDictionary)tr.GetObject(cloneDb.LayoutDictionaryId, OpenMode.ForWrite);
+            var toDelete = new List<string>();
+            foreach (DBDictionaryEntry e in dict)
+            {
+                if (string.Equals(e.Key, "Model", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (string.Equals(e.Key, layoutName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                toDelete.Add(e.Key);
+            }
+
+            var lm = LayoutManager.Current;
+            foreach (string name in toDelete)
+            {
+                try
+                {
+                    ObjectId layId = dict.GetAt(name);
+                    var layout = (Layout)tr.GetObject(layId, OpenMode.ForWrite);
+                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForWrite);
+                    foreach (ObjectId oid in btr)
+                    {
+                        var ent = tr.GetObject(oid, OpenMode.ForWrite);
+                        ent.Erase();
+                    }
+                    btr.Erase();
+                    layout.Erase();
+                    dict.Remove(name);
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception)
+                {
+                }
+            }
+
+            tr.Commit();
+        }
+
+        cloneDb.SaveAs(dwgPath, DwgVersion.Newest);
     }
 
     /// <summary>

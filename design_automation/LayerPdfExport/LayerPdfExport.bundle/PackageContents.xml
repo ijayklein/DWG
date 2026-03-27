@@ -22,6 +22,7 @@
         <Command Local="ExportAllLayoutDwgs" Global="ExportAllLayoutDwgs" />
         <Command Local="ListLayoutNames" Global="ListLayoutNames" />
         <Command Local="ExportSingleLayoutDwg" Global="ExportSingleLayoutDwg" />
+        <Command Local="ExportAllLayoutDwgsWblock" Global="ExportAllLayoutDwgsWblock" />
       </Commands>
     </ComponentEntry>
   </Components>

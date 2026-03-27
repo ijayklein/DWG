@@ -2,7 +2,6 @@ using Autodesk.AutoCAD.ApplicationServices.Core;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
-using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Runtime;
 using System.Globalization;
 using System.IO.Compression;
@@ -302,7 +301,7 @@ public class Commands
     /// Clone one paperspace layout into a fresh drawing’s <c>Layout1</c> without activating that tab
     /// in the host (avoids AcCore viewport regen crashes). Based on Autodesk WblockCloneObjects sample.
     /// </summary>
-    private static void ExportLayoutToNewDrawing(Document doc, string layoutName, string dwgPath)
+    private static void ExportLayoutToNewDrawing(Autodesk.AutoCAD.ApplicationServices.Document doc, string layoutName, string dwgPath)
     {
         var sourceDb = doc.Database;
         Database oldWdb = HostApplicationServices.WorkingDatabase;

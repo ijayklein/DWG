@@ -406,7 +406,7 @@ public class Commands
                 LayoutManager.Current.DeleteLayout(nonTarget);
                 deleted++;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 ed.WriteMessage($"\n[LayerPdfExport] Warning: could not delete layout \"{nonTarget}\": {ex.Message}\n");
             }

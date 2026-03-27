@@ -406,58 +406,41 @@ public class Commands
     }
 
     /// <summary>
-    /// Clone the source DWG, delete every layout except <paramref name="layoutName"/> (and Model),
-    /// SaveAs. The output preserves all model space geometry, blocks, layers, and the single
-    /// layout tab with its viewports — full fidelity, no regen, no commands.
+    /// Full-fidelity extract: Wblock model space + the target layout's paperspace into a single
+    /// new DWG. Both end up in the output's model space (no layout tabs), but all geometry,
+    /// blocks, layers, and annotations are present. Uses only <see cref="Database.Wblock"/> on the
+    /// source — no secondary Database, no ReadDwgFile, no LayoutManager on a clone.
     /// </summary>
     private static void ExportLayoutViaClone(Database sourceDb, string layoutName, string dwgPath)
     {
-        string srcPath = sourceDb.Filename;
-        if (string.IsNullOrWhiteSpace(srcPath) || !File.Exists(srcPath))
-            throw new InvalidOperationException("Cannot resolve source DWG file path for clone.");
-
-        using var cloneDb = new Database(false, true);
-        cloneDb.ReadDwgFile(srcPath, FileShare.Read, allowCPConversion: true, password: "");
-
-        using (var tr = cloneDb.TransactionManager.StartTransaction())
+        ObjectIdCollection ids;
+        using (var tr = sourceDb.TransactionManager.StartTransaction())
         {
-            var dict = (DBDictionary)tr.GetObject(cloneDb.LayoutDictionaryId, OpenMode.ForWrite);
-            var toDelete = new List<string>();
-            foreach (DBDictionaryEntry e in dict)
-            {
-                if (string.Equals(e.Key, "Model", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (string.Equals(e.Key, layoutName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                toDelete.Add(e.Key);
-            }
+            var bt = (BlockTable)tr.GetObject(sourceDb.BlockTableId, OpenMode.ForRead);
+            var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
 
-            var lm = LayoutManager.Current;
-            foreach (string name in toDelete)
+            ids = new ObjectIdCollection();
+            foreach (ObjectId oid in ms)
+                ids.Add(oid);
+
+            var dict = (DBDictionary)tr.GetObject(sourceDb.LayoutDictionaryId, OpenMode.ForRead);
+            if (dict.Contains(layoutName))
             {
-                try
-                {
-                    ObjectId layId = dict.GetAt(name);
-                    var layout = (Layout)tr.GetObject(layId, OpenMode.ForWrite);
-                    var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForWrite);
-                    foreach (ObjectId oid in btr)
-                    {
-                        var ent = tr.GetObject(oid, OpenMode.ForWrite);
-                        ent.Erase();
-                    }
-                    btr.Erase();
-                    layout.Erase();
-                    dict.Remove(name);
-                }
-                catch (Autodesk.AutoCAD.Runtime.Exception)
-                {
-                }
+                ObjectId layId = dict.GetAt(layoutName);
+                var layout = (Layout)tr.GetObject(layId, OpenMode.ForRead);
+                var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+                foreach (ObjectId oid in btr)
+                    ids.Add(oid);
             }
 
             tr.Commit();
         }
 
-        cloneDb.SaveAs(dwgPath, DwgVersion.Newest);
+        if (ids.Count == 0)
+            return;
+
+        using var newDb = sourceDb.Wblock(ids, Point3d.Origin);
+        newDb.SaveAs(dwgPath, DwgVersion.Newest);
     }
 
     /// <summary>

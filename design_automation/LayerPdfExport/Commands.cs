@@ -371,6 +371,18 @@ public class Commands
 
         ed.Command("._FILEDIA", "0");
 
+        // Pin every layer definition so WBLOCK * includes it even after model-space entities
+        // on that layer are erased.  WBLOCK * only writes named objects (layers, linetypes, …)
+        // that are referenced by at least one surviving entity.  We add a tiny DBPoint in the
+        // target layout's paperspace — far off-paper so it is never visible or printed — for
+        // every layer in the drawing.  Paperspace entities survive WBLOCK * intact.
+        PinAllLayersViaPaperspace(db, layoutName);
+
+        // Clear per-viewport layer freezes on the target layout's viewports.
+        // The source DWG typically VP-froze many layers in each viewport to hide other floor
+        // plans; those states would survive into the output and make layers appear inaccessible.
+        ClearViewportLayerFreezes(db, layoutName);
+
         // Clip model space (viewport extents must be read before any layouts are deleted).
         var vpExtents = GetViewportModelSpaceExtents(db, layoutName);
         if (vpExtents.Count > 0)
@@ -781,6 +793,64 @@ public class Commands
                 bool isKeep = string.Equals(ltr.Name, onlyOn, StringComparison.OrdinalIgnoreCase);
                 ltr.IsOff = othersOff && !isKeep;
             }
+        }
+        tr.Commit();
+    }
+
+    /// <summary>
+    /// Adds a zero-visible <see cref="DBPoint"/> at (-1e9, -1e9) (far off any paper sheet) in the
+    /// target layout's paperspace block for every non-dependent layer in the drawing.
+    /// <para>
+    /// <c>WBLOCK *</c> only writes named objects (layers, linetypes, …) that are referenced by at
+    /// least one surviving entity.  After the model-space clip erases all entities on "other floor
+    /// plan" layers, those layer definitions would otherwise disappear from the output DWG, breaking
+    /// the Layer Manager and object-highlight workflows.  The off-paper paperspace point acts as an
+    /// invisible anchor that keeps every layer alive without cluttering model space or the plot.
+    /// </para>
+    /// </summary>
+    private static void PinAllLayersViaPaperspace(Database db, string layoutName)
+    {
+        using var tr = db.TransactionManager.StartTransaction();
+        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+        var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        if (!dict.Contains(layoutName)) { tr.Commit(); return; }
+        var layout = (Layout)tr.GetObject(dict.GetAt(layoutName), OpenMode.ForRead);
+        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForWrite);
+        // Far off any paper sheet — never printed, barely visible even if paper is huge.
+        var offPaper = new Point3d(-1e9, -1e9, 0);
+        foreach (ObjectId layId in lt)
+        {
+            var ltr = (LayerTableRecord)tr.GetObject(layId, OpenMode.ForRead);
+            if (ltr.IsDependent) continue;
+            var pt = new DBPoint(offPaper);
+            pt.Layer = ltr.Name;
+            btr.AppendEntity(pt);
+            tr.AddNewlyCreatedDBObject(pt, true);
+        }
+        tr.Commit();
+    }
+
+    /// <summary>
+    /// Removes all per-viewport layer freezes from every viewport in the named layout.
+    /// <para>
+    /// The source DWG typically has many layers VP-frozen in each viewport to hide geometry from
+    /// other floor plans.  After splitting, those frozen states make layers appear inaccessible
+    /// (hover-highlight and LAYOFF don't respond).  Clearing them lets every layer be interactive
+    /// in the single-layout output — the model-space clip already removed the unwanted geometry.
+    /// </para>
+    /// </summary>
+    private static void ClearViewportLayerFreezes(Database db, string layoutName)
+    {
+        using var tr = db.TransactionManager.StartTransaction();
+        var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        if (!dict.Contains(layoutName)) { tr.Commit(); return; }
+        var layout = (Layout)tr.GetObject(dict.GetAt(layoutName), OpenMode.ForRead);
+        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+        foreach (ObjectId id in btr)
+        {
+            var vp = tr.GetObject(id, OpenMode.ForWrite) as Viewport;
+            if (vp == null || vp.Number == 1) continue;
+            vp.FrozenLayersCollection = new ObjectIdCollection();
         }
         tr.Commit();
     }

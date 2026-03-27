@@ -371,7 +371,7 @@ public class Commands
 
         ed.Command("._FILEDIA", "0");
 
-        // Clip model space first (while all layouts are still present so viewport extents are readable).
+        // Clip model space (viewport extents must be read before any layouts are deleted).
         var vpExtents = GetViewportModelSpaceExtents(db, layoutName);
         if (vpExtents.Count > 0)
         {
@@ -384,25 +384,34 @@ public class Commands
             ed.WriteMessage("\n[LayerPdfExport] No viewports found — model space kept intact.\n");
         }
 
-        // Delete all non-target layouts so they do not appear as (empty) tabs in the output DWG.
+        // Erase all entities inside non-target layouts (empties them before deletion).
         var nonTargetLayouts = allLayouts
             .Where(n => !string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase))
             .ToList();
+        var layoutEntityMap = BuildLayoutEntityMap(db, nonTargetLayouts);
+        EraseObjectIds(db, layoutEntityMap.Values.SelectMany(x => x).ToList());
+
+        // Activate the target layout BEFORE deleting others.
+        // LayoutManager.DeleteLayout cannot delete the *current* layout; activating the target
+        // layout first ensures every non-target layout is deletable.
+        ActivatePaperLayout(db, layoutName);
+        ed.Command("._ZOOM", "E");
+
+        // Delete non-target layouts so they do not appear as (empty) tabs in the output DWG.
+        int deleted = 0;
         foreach (string nonTarget in nonTargetLayouts)
         {
             try
             {
                 LayoutManager.Current.DeleteLayout(nonTarget);
+                deleted++;
             }
-            catch (Autodesk.AutoCAD.Runtime.Exception ex)
+            catch (Exception ex)
             {
                 ed.WriteMessage($"\n[LayerPdfExport] Warning: could not delete layout \"{nonTarget}\": {ex.Message}\n");
             }
         }
-        ed.WriteMessage($"\n[LayerPdfExport] Deleted {nonTargetLayouts.Count} non-target layout(s).\n");
-
-        ActivatePaperLayout(db, layoutName);
-        ed.Command("._ZOOM", "E");
+        ed.WriteMessage($"\n[LayerPdfExport] Deleted {deleted}/{nonTargetLayouts.Count} non-target layout(s).\n");
 
         string safe = SanitizeFileName(layoutName);
         string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));

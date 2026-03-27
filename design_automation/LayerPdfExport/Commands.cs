@@ -5,6 +5,7 @@ using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System.Globalization;
 using System.IO.Compression;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 
@@ -280,6 +281,80 @@ public class Commands
             File.Delete(zipPath);
         ZipFile.CreateFromDirectory(dwgDir, zipPath);
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({dwgCount} DWG file(s)).\n");
+    }
+
+    /// <summary>
+    /// Write <c>layout_names.json</c> to CWD — a JSON array of paper layout tab names (dictionary
+    /// order). Used by the fan-out pipeline to discover layouts before spawning per-layout WorkItems.
+    /// </summary>
+    [CommandMethod("ListLayoutNames", CommandFlags.Modal)]
+    public static void ListLayoutNames()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("No active document.");
+        var db = doc.Database;
+        var ed = doc.Editor;
+
+        var layouts = GetPaperLayoutNamesOrdered(db);
+        string jsonPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_names.json");
+        File.WriteAllText(jsonPath, JsonSerializer.Serialize(layouts));
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {jsonPath} ({layouts.Count} layout name(s)).\n");
+    }
+
+    /// <summary>
+    /// Export exactly one layout to DWG via <c>-EXPORTLAYOUT</c>. Reads the layout name from
+    /// <c>layout_name.txt</c> in CWD (trimmed). Activates only that one layout, runs ZOOM E,
+    /// then <c>-EXPORTLAYOUT</c>. Output is <c>layout_dwgs.zip</c> containing the single DWG.
+    /// Because this runs as its own WorkItem, the AcCore regen only happens once — no cumulative
+    /// viewport regen cascade that crashes in the all-layouts-in-one-job loop.
+    /// </summary>
+    [CommandMethod("ExportSingleLayoutDwg", CommandFlags.Modal)]
+    public static void ExportSingleLayoutDwg()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("No active document.");
+        var db = doc.Database;
+        var ed = doc.Editor;
+
+        string paramPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_name.txt");
+        if (!File.Exists(paramPath))
+            throw new FileNotFoundException("layout_name.txt not found in CWD — pass it as a WorkItem argument.");
+        string layoutName = File.ReadAllText(paramPath).Trim();
+        if (string.IsNullOrEmpty(layoutName))
+            throw new InvalidOperationException("layout_name.txt is empty.");
+
+        ed.WriteMessage($"\n[LayerPdfExport] ExportSingleLayoutDwg — layout \"{layoutName}\".\n");
+
+        SetAllLayersOffState(db, null, false);
+        ed.Command("._FILEDIA", "0");
+
+        var allLayouts = GetPaperLayoutNamesOrdered(db);
+        if (!allLayouts.Any(n => string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"Layout \"{layoutName}\" not found in DWG (have: {string.Join(", ", allLayouts)}).");
+
+        string dwgDir = Path.Combine(Directory.GetCurrentDirectory(), "_layoutdwg_out");
+        if (Directory.Exists(dwgDir))
+            Directory.Delete(dwgDir, true);
+        Directory.CreateDirectory(dwgDir);
+
+        ActivatePaperLayout(db, layoutName);
+        ed.Command("._ZOOM", "E");
+
+        string safe = SanitizeFileName(layoutName);
+        string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
+        if (File.Exists(dwgPath))
+            File.Delete(dwgPath);
+        ed.Command("._-EXPORTLAYOUT", dwgPath);
+
+        if (!File.Exists(dwgPath))
+            throw new InvalidOperationException($"-EXPORTLAYOUT did not produce {dwgPath}");
+        ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}\n");
+
+        string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_dwgs.zip");
+        if (File.Exists(zipPath))
+            File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(dwgDir, zipPath);
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath}\n");
     }
 
     /// <summary>

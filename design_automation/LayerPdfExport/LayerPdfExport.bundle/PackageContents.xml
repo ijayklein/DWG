@@ -20,6 +20,8 @@
         <Command Local="ExportFlatPdf" Global="ExportFlatPdf" />
         <Command Local="ExportAllLayoutPdfs" Global="ExportAllLayoutPdfs" />
         <Command Local="ExportAllLayoutDwgs" Global="ExportAllLayoutDwgs" />
+        <Command Local="ListLayoutNames" Global="ListLayoutNames" />
+        <Command Local="ExportSingleLayoutDwg" Global="ExportSingleLayoutDwg" />
       </Commands>
     </ComponentEntry>
   </Components>

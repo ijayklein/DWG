@@ -17,6 +17,8 @@
     <None Include="run_flat.scr" CopyToOutputDirectory="PreserveNewest" />
     <None Include="run_all_layouts.scr" CopyToOutputDirectory="PreserveNewest" />
     <None Include="run_layout_dwgs.scr" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="run_list_layouts.scr" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="run_single_layout_dwg.scr" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="AssembleBundle" AfterTargets="Build">
     <PropertyGroup>
@@ -33,5 +35,7 @@
     <Copy SourceFiles="$(OutputPath)run_flat.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run_flat.scr')" />
     <Copy SourceFiles="$(OutputPath)run_all_layouts.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run_all_layouts.scr')" />
     <Copy SourceFiles="$(OutputPath)run_layout_dwgs.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run_layout_dwgs.scr')" />
+    <Copy SourceFiles="$(OutputPath)run_list_layouts.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run_list_layouts.scr')" />
+    <Copy SourceFiles="$(OutputPath)run_single_layout_dwg.scr" DestinationFolder="$(BundleDir)" SkipUnchangedFiles="true" Condition="Exists('$(OutputPath)run_single_layout_dwg.scr')" />
   </Target>
 </Project>

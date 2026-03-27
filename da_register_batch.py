@@ -44,6 +44,8 @@ DEFAULT_REGION = "us-east"
 BUNDLE_ID = "LayerPdfExport"
 ACTIVITY_ID = "LayerPdfExportActivity"
 LAYOUT_DWG_ACTIVITY_ID = "LayoutDwgSplitActivity"
+LIST_LAYOUTS_ACTIVITY_ID = "ListLayoutNamesActivity"
+SINGLE_LAYOUT_DWG_ACTIVITY_ID = "SingleLayoutDwgActivity"
 BUNDLE_ALIAS = "prod"
 ACTIVITY_ALIAS = "prod"
 
@@ -138,6 +140,14 @@ def qualified_layout_dwg_activity(nickname: str) -> str:
     return f"{nickname}.{LAYOUT_DWG_ACTIVITY_ID}+{ACTIVITY_ALIAS}"
 
 
+def qualified_list_layouts_activity(nickname: str) -> str:
+    return f"{nickname}.{LIST_LAYOUTS_ACTIVITY_ID}+{ACTIVITY_ALIAS}"
+
+
+def qualified_single_layout_dwg_activity(nickname: str) -> str:
+    return f"{nickname}.{SINGLE_LAYOUT_DWG_ACTIVITY_ID}+{ACTIVITY_ALIAS}"
+
+
 def activity_body(engine: str, nickname: str) -> dict[str, Any]:
     # Accoreconsole: path macros must be in double quotes. Build a normal Python string;
     # requests/json will escape quotes for JSON (do not use \\\" — that breaks DA validation).
@@ -211,6 +221,90 @@ def activity_body_layout_dwg_split(engine: str, nickname: str) -> dict[str, Any]
             "ResultZip": {
                 "verb": "put",
                 "description": "layout_dwgs.zip output",
+                "required": True,
+                "localName": "layout_dwgs.zip",
+            },
+        },
+        "engine": engine,
+        "appbundles": [qualified_appbundle(nickname)],
+    }
+
+
+def activity_body_list_layouts(engine: str, nickname: str) -> dict[str, Any]:
+    cmd = (
+        '$(engine.path)\\accoreconsole.exe /al "$(appbundles[LayerPdfExport].path)" '
+        '/i "$(args[HostDwg].path)" '
+        '/s "$(appbundles[LayerPdfExport].path)\\Contents\\run_list_layouts.scr"'
+    )
+    return {
+        "id": LIST_LAYOUTS_ACTIVITY_ID,
+        "commandLine": [cmd],
+        "parameters": {
+            "HostDwg": {
+                "verb": "get",
+                "description": "Input DWG",
+                "required": True,
+            },
+            "PluginDll": {
+                "verb": "get",
+                "description": "LayerPdfExport.dll",
+                "required": True,
+                "localName": "LayerPdfExport.dll",
+            },
+            "PluginDeps": {
+                "verb": "get",
+                "description": "LayerPdfExport.deps.json",
+                "required": True,
+                "localName": "LayerPdfExport.deps.json",
+            },
+            "ResultJson": {
+                "verb": "put",
+                "description": "layout_names.json output",
+                "required": True,
+                "localName": "layout_names.json",
+            },
+        },
+        "engine": engine,
+        "appbundles": [qualified_appbundle(nickname)],
+    }
+
+
+def activity_body_single_layout_dwg(engine: str, nickname: str) -> dict[str, Any]:
+    cmd = (
+        '$(engine.path)\\accoreconsole.exe /al "$(appbundles[LayerPdfExport].path)" '
+        '/i "$(args[HostDwg].path)" '
+        '/s "$(appbundles[LayerPdfExport].path)\\Contents\\run_single_layout_dwg.scr"'
+    )
+    return {
+        "id": SINGLE_LAYOUT_DWG_ACTIVITY_ID,
+        "commandLine": [cmd],
+        "parameters": {
+            "HostDwg": {
+                "verb": "get",
+                "description": "Input DWG",
+                "required": True,
+            },
+            "PluginDll": {
+                "verb": "get",
+                "description": "LayerPdfExport.dll",
+                "required": True,
+                "localName": "LayerPdfExport.dll",
+            },
+            "PluginDeps": {
+                "verb": "get",
+                "description": "LayerPdfExport.deps.json",
+                "required": True,
+                "localName": "LayerPdfExport.deps.json",
+            },
+            "LayoutName": {
+                "verb": "get",
+                "description": "layout_name.txt — single line with layout tab name",
+                "required": True,
+                "localName": "layout_name.txt",
+            },
+            "ResultZip": {
+                "verb": "put",
+                "description": "layout_dwgs.zip (one DWG)",
                 "required": True,
                 "localName": "layout_dwgs.zip",
             },
@@ -423,6 +517,8 @@ def main() -> int:
     LOG.info("Qualified AppBundle ref: %s", qualified_appbundle(nickname))
     LOG.info("Qualified Activity id: %s", qualified_activity(nickname))
     LOG.info("Qualified layout-DWG Activity id: %s", qualified_layout_dwg_activity(nickname))
+    LOG.info("Qualified list-layouts Activity id: %s", qualified_list_layouts_activity(nickname))
+    LOG.info("Qualified single-layout-DWG Activity id: %s", qualified_single_layout_dwg_activity(nickname))
 
     if args.introspect:
         print(json.dumps(
@@ -432,6 +528,8 @@ def main() -> int:
                 "appbundle_ref": qualified_appbundle(nickname),
                 "activity_id": qualified_activity(nickname),
                 "layout_dwg_activity_id": qualified_layout_dwg_activity(nickname),
+                "list_layouts_activity_id": qualified_list_layouts_activity(nickname),
+                "single_layout_dwg_activity_id": qualified_single_layout_dwg_activity(nickname),
             },
             indent=2,
         ))
@@ -447,6 +545,14 @@ def main() -> int:
             ldver = ensure_activity_from_body(token, args.region, body_dwg)
             ensure_activity_alias_for(token, args.region, LAYOUT_DWG_ACTIVITY_ID, ldver)
             out["layout_dwg_activity_id"] = qualified_layout_dwg_activity(nickname)
+            body_list = activity_body_list_layouts(engine, nickname)
+            llver = ensure_activity_from_body(token, args.region, body_list)
+            ensure_activity_alias_for(token, args.region, LIST_LAYOUTS_ACTIVITY_ID, llver)
+            out["list_layouts_activity_id"] = qualified_list_layouts_activity(nickname)
+            body_single = activity_body_single_layout_dwg(engine, nickname)
+            slver = ensure_activity_from_body(token, args.region, body_single)
+            ensure_activity_alias_for(token, args.region, SINGLE_LAYOUT_DWG_ACTIVITY_ID, slver)
+            out["single_layout_dwg_activity_id"] = qualified_single_layout_dwg_activity(nickname)
         print(json.dumps(out, indent=2))
         return 0
 
@@ -471,6 +577,14 @@ def main() -> int:
         ldver = ensure_activity_from_body(token, args.region, body_dwg)
         ensure_activity_alias_for(token, args.region, LAYOUT_DWG_ACTIVITY_ID, ldver)
         out["layout_dwg_activity_id"] = qualified_layout_dwg_activity(nickname)
+        body_list = activity_body_list_layouts(engine, nickname)
+        llver = ensure_activity_from_body(token, args.region, body_list)
+        ensure_activity_alias_for(token, args.region, LIST_LAYOUTS_ACTIVITY_ID, llver)
+        out["list_layouts_activity_id"] = qualified_list_layouts_activity(nickname)
+        body_single = activity_body_single_layout_dwg(engine, nickname)
+        slver = ensure_activity_from_body(token, args.region, body_single)
+        ensure_activity_alias_for(token, args.region, SINGLE_LAYOUT_DWG_ACTIVITY_ID, slver)
+        out["single_layout_dwg_activity_id"] = qualified_single_layout_dwg_activity(nickname)
 
     print(json.dumps(out, indent=2))
     return 0

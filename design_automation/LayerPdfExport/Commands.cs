@@ -226,9 +226,10 @@ public class Commands
     }
 
     /// <summary>
-    /// One DWG per paper layout via <c>-EXPORTLAYOUT</c> (after <c>LAYOUT</c> <c>S</c>): each file
-    /// contains that layout’s content recreated in <b>model space</b> (AutoCAD does not keep a paper
-    /// layout tab in the export). Named from the layout. Model-only drawings copy the host as
+    /// One DWG per paper layout. Uses the same <c>LAYOUT S</c> / <c>ZOOM E</c> sequence as
+    /// <see cref="ExportAllLayoutPdfs"/>, but AutoCAD has no <c>-EXPORT</c> → DWG for “current
+    /// layout”; this command uses <c>-EXPORTLAYOUT</c> to create a new drawing from the active
+    /// layout (sheet content to model space per AutoCAD). Model-only drawings copy the host as
     /// <c>model.dwg</c>. Zipped to <c>layout_dwgs.zip</c>.
     /// </summary>
     [CommandMethod("ExportAllLayoutDwgs", CommandFlags.Modal)]
@@ -240,6 +241,9 @@ public class Commands
         var ed = doc.Editor;
 
         ed.WriteMessage("\n[LayerPdfExport] ExportAllLayoutDwgs — one DWG per layout tab.\n");
+
+        // Same preamble as ExportAllLayoutPdfs (all layers on, FILEDIA off).
+        SetAllLayersOffState(db, null, false);
 
         string dwgDir = Path.Combine(Directory.GetCurrentDirectory(), "_layoutdwg_out");
         if (Directory.Exists(dwgDir))
@@ -268,10 +272,11 @@ public class Commands
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
             foreach (string layoutName in layouts)
             {
-                // LAYOUT S, then regen. (On paper space, ed.Command ZOOM E can stall on “Specify corner…”
-                // in AcCore; REGEN finishes viewport/layout rebuild before EXPORTLAYOUT.)
+                // Same navigation as ExportAllLayoutPdfs; then write a new DWG for this layout.
+                // Note: -EXPORT → PDF/DWF is not “DWG without PDF” — DWG needs a different command
+                // (-EXPORTLAYOUT creates a new drawing from the current layout).
                 ed.Command("._LAYOUT", "S", layoutName);
-                ed.Command("._REGEN");
+                ed.Command("._ZOOM", "E");
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));

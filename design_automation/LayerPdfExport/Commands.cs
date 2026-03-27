@@ -715,7 +715,6 @@ public class Commands
         {
             var ltr = (LayerTableRecord)tr.GetObject(id, OpenMode.ForWrite);
             ltr.IsOff = false;
-            ltr.IsFrozen = false;
         }
         tr.Commit();
     }

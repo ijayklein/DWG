@@ -216,9 +216,10 @@ public class Commands
     }
 
     /// <summary>
-    /// One DWG per paper layout via <see cref="ExportLayoutViaClone"/> — clones the full database
-    /// and deletes other layouts, preserving model space + one layout tab with all geometry and
-    /// semantic data. Zipped to <c>layout_dwgs.zip</c>.
+    /// One DWG per paper layout — erases non-target layout entities from the active database,
+    /// <c>SaveAs</c> to produce a file with Model + one layout (with viewports), then restores.
+    /// Each output preserves full model space, layers, blocks, and the target layout tab with
+    /// functioning viewports. Zipped to <c>layout_dwgs.zip</c>.
     /// <para>This is the <b>full-fidelity</b> option. For a lightweight paperspace-only extract,
     /// see <see cref="ExportAllLayoutDwgsWblock"/>.</para>
     /// </summary>
@@ -259,19 +260,33 @@ public class Commands
         else
         {
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
+
+            var layoutEntityMap = BuildLayoutEntityMap(db, layouts);
+
+            var allIds = layoutEntityMap.Values.SelectMany(x => x).ToList();
+            EraseObjectIds(db, allIds);
+
             foreach (string layoutName in layouts)
             {
+                if (layoutEntityMap.TryGetValue(layoutName, out var targetIds) && targetIds.Count > 0)
+                    UnEraseObjectIds(db, targetIds);
+
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
                 if (File.Exists(dwgPath))
                     File.Delete(dwgPath);
-                ExportLayoutViaClone(db, layoutName, dwgPath);
+                db.SaveAs(dwgPath, DwgVersion.Newest);
 
-                if (!File.Exists(dwgPath))
-                    ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\" -> {dwgPath}");
-                else
+                if (targetIds != null && targetIds.Count > 0)
+                    EraseObjectIds(db, targetIds);
+
+                if (File.Exists(dwgPath))
                     ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}");
+                else
+                    ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\"");
             }
+
+            UnEraseObjectIds(db, allIds);
         }
 
         int dwgCount = Directory.GetFiles(dwgDir, "*.dwg", SearchOption.TopDirectoryOnly).Length;
@@ -304,11 +319,10 @@ public class Commands
     }
 
     /// <summary>
-    /// Export exactly one layout to DWG via <c>-EXPORTLAYOUT</c>. Reads the layout name from
-    /// <c>layout_name.txt</c> in CWD (trimmed). Activates only that one layout, runs ZOOM E,
-    /// then <c>-EXPORTLAYOUT</c>. Output is <c>layout_dwgs.zip</c> containing the single DWG.
-    /// Because this runs as its own WorkItem, the AcCore regen only happens once — no cumulative
-    /// viewport regen cascade that crashes in the all-layouts-in-one-job loop.
+    /// Export exactly one layout to DWG. Reads the layout name from <c>layout_name.txt</c>.
+    /// Erases all non-target layout entities from the active database, then <c>SaveAs</c>.
+    /// No restore needed since each fan-out WorkItem opens a fresh copy of the input DWG.
+    /// Output preserves model space + one layout tab with functioning viewports.
     /// </summary>
     [CommandMethod("ExportSingleLayoutDwg", CommandFlags.Modal)]
     public static void ExportSingleLayoutDwg()
@@ -336,12 +350,19 @@ public class Commands
             Directory.Delete(dwgDir, true);
         Directory.CreateDirectory(dwgDir);
 
+        var nonTargetLayouts = allLayouts
+            .Where(n => !string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var layoutEntityMap = BuildLayoutEntityMap(db, nonTargetLayouts);
+        var idsToErase = layoutEntityMap.Values.SelectMany(x => x).ToList();
+        EraseObjectIds(db, idsToErase);
+
         string safe = SanitizeFileName(layoutName);
         string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
-        ExportLayoutViaClone(db, layoutName, dwgPath);
+        db.SaveAs(dwgPath, DwgVersion.Newest);
 
         if (!File.Exists(dwgPath))
-            throw new InvalidOperationException($"Clone did not produce {dwgPath}");
+            throw new InvalidOperationException($"SaveAs did not produce {dwgPath}");
         ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}\n");
 
         string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_dwgs.zip");
@@ -405,42 +426,51 @@ public class Commands
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({dwgCount} DWG file(s)).\n");
     }
 
-    /// <summary>
-    /// Full-fidelity extract: Wblock model space + the target layout's paperspace into a single
-    /// new DWG. Both end up in the output's model space (no layout tabs), but all geometry,
-    /// blocks, layers, and annotations are present. Uses only <see cref="Database.Wblock"/> on the
-    /// source — no secondary Database, no ReadDwgFile, no LayoutManager on a clone.
-    /// </summary>
-    private static void ExportLayoutViaClone(Database sourceDb, string layoutName, string dwgPath)
+    private static Dictionary<string, List<ObjectId>> BuildLayoutEntityMap(
+        Database db, List<string> layoutNames)
     {
-        ObjectIdCollection ids;
-        using (var tr = sourceDb.TransactionManager.StartTransaction())
+        var map = new Dictionary<string, List<ObjectId>>(StringComparer.OrdinalIgnoreCase);
+        using var tr = db.TransactionManager.StartTransaction();
+        var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        foreach (string name in layoutNames)
         {
-            var bt = (BlockTable)tr.GetObject(sourceDb.BlockTableId, OpenMode.ForRead);
-            var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
-
-            ids = new ObjectIdCollection();
-            foreach (ObjectId oid in ms)
-                ids.Add(oid);
-
-            var dict = (DBDictionary)tr.GetObject(sourceDb.LayoutDictionaryId, OpenMode.ForRead);
-            if (dict.Contains(layoutName))
+            var ids = new List<ObjectId>();
+            if (dict.Contains(name))
             {
-                ObjectId layId = dict.GetAt(layoutName);
+                ObjectId layId = dict.GetAt(name);
                 var layout = (Layout)tr.GetObject(layId, OpenMode.ForRead);
                 var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
                 foreach (ObjectId oid in btr)
                     ids.Add(oid);
             }
-
-            tr.Commit();
+            map[name] = ids;
         }
+        tr.Commit();
+        return map;
+    }
 
-        if (ids.Count == 0)
-            return;
+    private static void EraseObjectIds(Database db, List<ObjectId> ids)
+    {
+        using var tr = db.TransactionManager.StartTransaction();
+        foreach (var oid in ids)
+        {
+            if (!oid.IsValid || oid.IsErased) continue;
+            var obj = tr.GetObject(oid, OpenMode.ForWrite);
+            obj.Erase();
+        }
+        tr.Commit();
+    }
 
-        using var newDb = sourceDb.Wblock(ids, Point3d.Origin);
-        newDb.SaveAs(dwgPath, DwgVersion.Newest);
+    private static void UnEraseObjectIds(Database db, List<ObjectId> ids)
+    {
+        using var tr = db.TransactionManager.StartTransaction();
+        foreach (var oid in ids)
+        {
+            if (!oid.IsValid) continue;
+            var obj = tr.GetObject(oid, OpenMode.ForWrite, openErased: true);
+            obj.Erase(false);
+        }
+        tr.Commit();
     }
 
     /// <summary>

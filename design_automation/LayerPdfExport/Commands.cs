@@ -274,6 +274,7 @@ public class Commands
             foreach (string layoutName in layouts)
             {
                 ActivatePaperLayout(db, layoutName, waitMs: 800);
+                ed.Command("._-ZOOM", "Extents");
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));

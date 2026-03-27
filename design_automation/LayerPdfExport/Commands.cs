@@ -271,11 +271,14 @@ public class Commands
                 if (layoutEntityMap.TryGetValue(layoutName, out var targetIds) && targetIds.Count > 0)
                     UnEraseObjectIds(db, targetIds);
 
+                ActivatePaperLayout(db, layoutName);
+                ed.Command("._ZOOM", "E");
+
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
                 if (File.Exists(dwgPath))
                     File.Delete(dwgPath);
-                db.SaveAs(dwgPath, DwgVersion.Newest);
+                ed.Command("._-WBLOCK", dwgPath, "*");
 
                 if (targetIds != null && targetIds.Count > 0)
                     EraseObjectIds(db, targetIds);
@@ -350,6 +353,8 @@ public class Commands
             Directory.Delete(dwgDir, true);
         Directory.CreateDirectory(dwgDir);
 
+        ed.Command("._FILEDIA", "0");
+
         var nonTargetLayouts = allLayouts
             .Where(n => !string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -357,12 +362,17 @@ public class Commands
         var idsToErase = layoutEntityMap.Values.SelectMany(x => x).ToList();
         EraseObjectIds(db, idsToErase);
 
+        ActivatePaperLayout(db, layoutName);
+        ed.Command("._ZOOM", "E");
+
         string safe = SanitizeFileName(layoutName);
         string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
-        db.SaveAs(dwgPath, DwgVersion.Newest);
+        if (File.Exists(dwgPath))
+            File.Delete(dwgPath);
+        ed.Command("._-WBLOCK", dwgPath, "*");
 
         if (!File.Exists(dwgPath))
-            throw new InvalidOperationException($"SaveAs did not produce {dwgPath}");
+            throw new InvalidOperationException($"-WBLOCK did not produce {dwgPath}");
         ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {dwgPath}\n");
 
         string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_dwgs.zip");

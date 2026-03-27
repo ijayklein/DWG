@@ -56,15 +56,10 @@ public class Commands
             Directory.Delete(pdfDir, true);
         Directory.CreateDirectory(pdfDir);
 
-        // Ensure all layers on first (baseline).
         SetAllLayersOffState(db, null, false);
 
-        // FILEDIA 0 so -EXPORT takes the path on the command line (no dialog).
-        // Editor.Command is void in AutoCAD.NET 25 — verify success via output file below.
         ed.Command("._FILEDIA", "0");
 
-        // Prefer the first paper layout (sheet + viewports) — that is usually the “full page” users
-        // see in AutoCAD. Exporting Model alone often frames only a small model-space crop.
         var (usingPaper, layoutName) = SelectExportCanvas(ed, db);
         ed.Command("._ZOOM", "E");
 
@@ -91,7 +86,6 @@ public class Commands
             if (File.Exists(pdfPath))
                 File.Delete(pdfPath);
 
-            // Model: Window or Display. Paper layout: Current layout (not Extents/Window — different prompts).
             if (usingPaper)
                 CommandExportPdf(ed, true, pdfPath);
             else if (haveWindow)
@@ -118,10 +112,6 @@ public class Commands
         ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath} ({pdfCount} PDF file(s) in folder).");
     }
 
-    /// <summary>
-    /// Single PDF with all layers on. Activates the first paper layout when the DWG has one,
-    /// otherwise Model; then <c>ZOOM</c> <c>E</c> and <c>-EXPORT</c> using layout vs model prompts.
-    /// </summary>
     [CommandMethod("ExportFlatPdf", CommandFlags.Modal)]
     public static void ExportFlatPdf()
     {
@@ -147,8 +137,6 @@ public class Commands
         if (File.Exists(pdfPath))
             File.Delete(pdfPath);
 
-        // Model: PDF → Extents → No → path. Paper layout: PDF → Current layout | All layouts → No → path
-        // (see AcCore log — “Extents” is invalid on a layout tab).
         CommandExportPdf(ed, usingPaper, pdfPath);
 
         if (!File.Exists(pdfPath))
@@ -227,9 +215,8 @@ public class Commands
     }
 
     /// <summary>
-    /// One DWG per paper layout via <see cref="ExportLayoutToNewDrawing"/> (clone paperspace +
-    /// plot settings into a new drawing’s <c>Layout1</c>) — no per-layout tab activation or
-    /// <c>-EXPORTLAYOUT</c>, which is unstable in some AcCoreConsole runs. Model-only drawings copy the host as
+    /// One DWG per paper layout via <see cref="ExportLayoutViaWblock"/> — pure managed API, no
+    /// layout tab activation, no <c>-EXPORTLAYOUT</c> command. Model-only drawings copy the host as
     /// <c>model.dwg</c>. Zipped to <c>layout_dwgs.zip</c>.
     /// </summary>
     [CommandMethod("ExportAllLayoutDwgs", CommandFlags.Modal)]
@@ -242,7 +229,6 @@ public class Commands
 
         ed.WriteMessage("\n[LayerPdfExport] ExportAllLayoutDwgs — one DWG per layout tab.\n");
 
-        // Same preamble as ExportAllLayoutPdfs (all layers on, FILEDIA off).
         SetAllLayersOffState(db, null, false);
 
         string dwgDir = Path.Combine(Directory.GetCurrentDirectory(), "_layoutdwg_out");
@@ -276,8 +262,7 @@ public class Commands
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
                 if (File.Exists(dwgPath))
                     File.Delete(dwgPath);
-                // Avoid per-layout tab activation + -EXPORTLAYOUT (viewport regen / AcCore AV on some DWGs).
-                ExportLayoutToNewDrawing(doc, layoutName, dwgPath);
+                ExportLayoutViaWblock(db, layoutName, dwgPath);
 
                 if (!File.Exists(dwgPath))
                     ed.WriteMessage($"\n[LayerPdfExport] Warning: no DWG for layout \"{layoutName}\" -> {dwgPath}");
@@ -298,79 +283,36 @@ public class Commands
     }
 
     /// <summary>
-    /// Clone one paperspace layout into a fresh drawing’s <c>Layout1</c> without activating that tab
-    /// in the host (avoids AcCore viewport regen crashes). Based on Autodesk WblockCloneObjects sample.
+    /// Extract a layout's paperspace entities via <see cref="Database.Wblock(ObjectIdCollection, Point3d)"/>.
+    /// No <c>HostApplicationServices.WorkingDatabase</c> switching, no secondary <c>LayoutManager</c>
+    /// calls — avoids the native AV that occurs in AcCoreConsole/DA when those APIs are used.
+    /// Content lands in model space of the new DWG (same as <c>-EXPORTLAYOUT</c>).
     /// </summary>
-    private static void ExportLayoutToNewDrawing(Autodesk.AutoCAD.ApplicationServices.Document doc, string layoutName, string dwgPath)
+    private static void ExportLayoutViaWblock(Database sourceDb, string layoutName, string dwgPath)
     {
-        var sourceDb = doc.Database;
-        Database oldWdb = HostApplicationServices.WorkingDatabase;
-        try
+        ObjectIdCollection ids;
+        using (var tr = sourceDb.TransactionManager.StartTransaction())
         {
-            using var destDb = new Database(true, false);
-            using (var destTr = destDb.TransactionManager.StartTransaction())
-            {
-                HostApplicationServices.WorkingDatabase = destDb;
-                var destLayoutDic = (DBDictionary)destTr.GetObject(destDb.LayoutDictionaryId, OpenMode.ForRead);
-                ObjectId destLayoutId = destLayoutDic.GetAt("Layout1");
-                var destLayout = (Layout)destTr.GetObject(destLayoutId, OpenMode.ForWrite);
+            var dict = (DBDictionary)tr.GetObject(sourceDb.LayoutDictionaryId, OpenMode.ForRead);
+            if (!dict.Contains(layoutName))
+                throw new InvalidOperationException($"Layout not found: {layoutName}");
+            ObjectId layId = dict.GetAt(layoutName);
+            var layout = (Layout)tr.GetObject(layId, OpenMode.ForRead);
+            var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
 
-                HostApplicationServices.WorkingDatabase = sourceDb;
-                using (var srcTr = sourceDb.TransactionManager.StartTransaction())
-                {
-                    var srcDict = (DBDictionary)srcTr.GetObject(sourceDb.LayoutDictionaryId, OpenMode.ForRead);
-                    if (!srcDict.Contains(layoutName))
-                        throw new InvalidOperationException($"Layout not found: {layoutName}");
-                    ObjectId srcLayoutId = srcDict.GetAt(layoutName);
-                    var srcLayout = (Layout)srcTr.GetObject(srcLayoutId, OpenMode.ForRead);
-                    destLayout.CopyFrom(srcLayout);
-
-                    HostApplicationServices.WorkingDatabase = destDb;
-                    var destBtr = (BlockTableRecord)destTr.GetObject(destLayout.BlockTableRecordId, OpenMode.ForWrite);
-                    var eraseIds = new ObjectIdCollection();
-                    foreach (ObjectId oid in destBtr)
-                        eraseIds.Add(oid);
-                    for (int i = 0; i < eraseIds.Count; i++)
-                    {
-                        ObjectId oid = eraseIds[i];
-                        if (!oid.IsValid)
-                            continue;
-                        if (destTr.GetObject(oid, OpenMode.ForWrite) is Entity ent)
-                            ent.Erase();
-                    }
-
-                    HostApplicationServices.WorkingDatabase = sourceDb;
-                    var srcBtr = (BlockTableRecord)srcTr.GetObject(srcLayout.BlockTableRecordId, OpenMode.ForRead);
-                    var cloneIds = new ObjectIdCollection();
-                    foreach (ObjectId oid in srcBtr)
-                        cloneIds.Add(oid);
-                    var idMap = new IdMapping();
-                    destDb.WblockCloneObjects(
-                        cloneIds,
-                        destLayout.BlockTableRecordId,
-                        idMap,
-                        DuplicateRecordCloning.Ignore,
-                        false);
-                    srcTr.Commit();
-                }
-
-                HostApplicationServices.WorkingDatabase = destDb;
-                destTr.Commit();
-            }
-
-            destDb.SaveAs(dwgPath, DwgVersion.Newest);
+            ids = new ObjectIdCollection();
+            foreach (ObjectId oid in btr)
+                ids.Add(oid);
+            tr.Commit();
         }
-        finally
-        {
-            HostApplicationServices.WorkingDatabase = oldWdb;
-        }
+
+        if (ids.Count == 0)
+            return;
+
+        using var newDb = sourceDb.Wblock(ids, Point3d.Origin);
+        newDb.SaveAs(dwgPath, DwgVersion.Newest);
     }
 
-    /// <summary>
-    /// All non-Model layouts in <b>layout dictionary order</b> (usually the same as layout tab
-    /// order). Do not sort alphabetically: that can reorder tabs and activate a heavy layout first,
-    /// which has crashed AcCoreConsole on some DWGs during regen.
-    /// </summary>
     private static List<string> GetPaperLayoutNamesOrdered(Database db)
     {
         var list = new List<string>();
@@ -386,10 +328,6 @@ public class Commands
         return list;
     }
 
-    /// <summary>
-    /// <c>-EXPORT</c> PDF prompts differ: Model uses Display / Extents / Window; an active layout
-    /// uses Current layout / All layouts (see DA report if keywords change).
-    /// </summary>
     private static void CommandExportPdf(Editor ed, bool paperLayout, string pdfPath)
     {
         if (paperLayout)
@@ -398,13 +336,9 @@ public class Commands
             ed.Command("._-EXPORT", "PDF", "Extents", "No", pdfPath);
     }
 
-    /// <summary>WCS point as command-line "x,y" (invariant), for -EXPORT Window corners.</summary>
     private static string PointToCmd(Point3d p) =>
         $"{p.X.ToString(CultureInfo.InvariantCulture)},{p.Y.ToString(CultureInfo.InvariantCulture)}";
 
-    /// <summary>
-    /// Switch to the drawing’s “page”: first paper layout if any, otherwise Model + WORLD UCS.
-    /// </summary>
     private static (bool UsingPaperLayout, string? LayoutName) SelectExportCanvas(Editor ed, Database db)
     {
         string? paper = GetFirstPaperLayoutName(db);
@@ -421,10 +355,6 @@ public class Commands
         return (true, paper);
     }
 
-    /// <summary>
-    /// Paper layout switch via API + <see cref="Database.TileMode"/>false; avoids AcCore crashes
-    /// during viewport regen after <c>LAYOUT S</c> on some DWGs (command-line switch is less stable in DA).
-    /// </summary>
     private static void ActivatePaperLayout(Database db, string layoutName, int waitMs = 150)
     {
         db.TileMode = false;
@@ -433,7 +363,6 @@ public class Commands
             Thread.Sleep(waitMs);
     }
 
-    /// <summary>First non-Model layout; prefers Layout1 when present (common default tab).</summary>
     private static string? GetFirstPaperLayoutName(Database db)
     {
         using var tr = db.TransactionManager.StartTransaction();
@@ -456,7 +385,6 @@ public class Commands
         return first;
     }
 
-    /// <summary>Extents for -EXPORT Window: paperspace block if in a layout, else model space.</summary>
     private static bool TryGetExtentsForCanvas(Database db, bool paperLayout, string? layoutName, out Extents3d ext)
     {
         if (paperLayout && !string.IsNullOrEmpty(layoutName) && TryGetPaperLayoutExtents(db, layoutName, out ext))
@@ -537,7 +465,6 @@ public class Commands
                 }
                 catch (Autodesk.AutoCAD.Runtime.Exception)
                 {
-                    // e.g. no valid extents for this entity
                 }
             }
 
@@ -577,7 +504,6 @@ public class Commands
             new Point3d(ext.MaxPoint.X + dx, ext.MaxPoint.Y + dy, ext.MaxPoint.Z));
     }
 
-    /// <summary>If <paramref name="onlyOn"/> is null, set all layers to <paramref name="off"/>; else only that layer on.</summary>
     private static void SetAllLayersOffState(Database db, string? onlyOn, bool othersOff)
     {
         using var tr = db.TransactionManager.StartTransaction();

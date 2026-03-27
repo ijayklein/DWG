@@ -233,7 +233,7 @@ public class Commands
 
         ed.WriteMessage("\n[LayerPdfExport] ExportAllLayoutDwgs — one DWG per layout tab.\n");
 
-        SetAllLayersOffState(db, null, false);
+        MakeAllLayersVisible(db);
 
         string dwgDir = Path.Combine(Directory.GetCurrentDirectory(), "_layoutdwg_out");
         if (Directory.Exists(dwgDir))
@@ -343,6 +343,8 @@ public class Commands
             throw new InvalidOperationException("layout_name.txt is empty.");
 
         ed.WriteMessage($"\n[LayerPdfExport] ExportSingleLayoutDwg — layout \"{layoutName}\".\n");
+
+        MakeAllLayersVisible(db);
 
         var allLayouts = GetPaperLayoutNamesOrdered(db);
         if (!allLayouts.Any(n => string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase)))
@@ -703,6 +705,19 @@ public class Commands
         ext = new Extents3d(
             new Point3d(ext.MinPoint.X - dx, ext.MinPoint.Y - dy, ext.MinPoint.Z),
             new Point3d(ext.MaxPoint.X + dx, ext.MaxPoint.Y + dy, ext.MaxPoint.Z));
+    }
+
+    private static void MakeAllLayersVisible(Database db)
+    {
+        using var tr = db.TransactionManager.StartTransaction();
+        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+        foreach (ObjectId id in lt)
+        {
+            var ltr = (LayerTableRecord)tr.GetObject(id, OpenMode.ForWrite);
+            ltr.IsOff = false;
+            ltr.IsFrozen = false;
+        }
+        tr.Commit();
     }
 
     private static void SetAllLayersOffState(Database db, string? onlyOn, bool othersOff)

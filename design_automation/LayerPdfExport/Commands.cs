@@ -273,10 +273,7 @@ public class Commands
             ed.WriteMessage($"\n[LayerPdfExport] {layouts.Count} paper layout(s) to export as DWG.\n");
             foreach (string layoutName in layouts)
             {
-                // Activate layout only. Do not run ZOOM here: on paper space AcCore often treats
-                // ZOOM E as window-zoom (“Specify corner…”), which breaks before -EXPORTLAYOUT.
-                // (-EXPORTLAYOUT does not depend on the current view the way -EXPORT PDF Current does.)
-                ActivatePaperLayout(db, layoutName);
+                ActivatePaperLayout(db, layoutName, waitMs: 800);
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
@@ -360,11 +357,12 @@ public class Commands
     /// Paper layout switch via API + <see cref="Database.TileMode"/>false; avoids AcCore crashes
     /// during viewport regen after <c>LAYOUT S</c> on some DWGs (command-line switch is less stable in DA).
     /// </summary>
-    private static void ActivatePaperLayout(Database db, string layoutName)
+    private static void ActivatePaperLayout(Database db, string layoutName, int waitMs = 150)
     {
         db.TileMode = false;
         LayoutManager.Current.CurrentLayout = layoutName;
-        Thread.Sleep(150);
+        if (waitMs > 0)
+            Thread.Sleep(waitMs);
     }
 
     /// <summary>First non-Model layout; prefers Layout1 when present (common default tab).</summary>

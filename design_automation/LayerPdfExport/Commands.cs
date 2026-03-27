@@ -274,7 +274,8 @@ public class Commands
             foreach (string layoutName in layouts)
             {
                 ActivatePaperLayout(db, layoutName);
-                ed.Command("._-ZOOM", "Extents");
+                // Keep identical to ExportAllLayoutPdfs here; mixed -ZOOM/Extents has crashed before -EXPORTLAYOUT.
+                ed.Command("._ZOOM", "E");
 
                 string safe = SanitizeFileName(layoutName);
                 string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));

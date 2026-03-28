@@ -426,6 +426,13 @@ public class Commands
         }
         ed.WriteMessage($"\n[LayerPdfExport] Deleted {deleted}/{nonTargetLayouts.Count} non-target layout(s).\n");
 
+        // Enter the active viewport (floating model space) before saving so the output DWG
+        // opens with the viewport already active.  In paper space the user would need to
+        // double-click the viewport before LAYOFF / entity-selection tools respond to model
+        // space entities; saving in MSPACE state eliminates that extra step.
+        try { ed.Command("._MSPACE"); }
+        catch (System.Exception ex) { ed.WriteMessage($"\n[LayerPdfExport] Warning: MSPACE failed: {ex.Message}\n"); }
+
         string safe = SanitizeFileName(layoutName);
         string dwgPath = Path.GetFullPath(Path.Combine(dwgDir, $"{safe}.dwg"));
         if (File.Exists(dwgPath))

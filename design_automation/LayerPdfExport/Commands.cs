@@ -451,6 +451,102 @@ public class Commands
     }
 
     /// <summary>
+    /// Fan-out variant: reads <c>layout_name.txt</c>, applies the same model-space clip and
+    /// layer cleanup as <see cref="ExportSingleLayoutDwg"/>, then exports the active layout
+    /// to a PDF via <c>-EXPORT PDF Current</c>.  Result is zipped to <c>layout_pdfs.zip</c>.
+    /// Intended for use with <c>SingleLayoutPdfActivity</c> in the fan-out pipeline.
+    /// </summary>
+    [CommandMethod("ExportSingleLayoutPdf", CommandFlags.Modal)]
+    public static void ExportSingleLayoutPdf()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument
+            ?? throw new InvalidOperationException("No active document.");
+        var db = doc.Database;
+        var ed = doc.Editor;
+
+        string paramPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_name.txt");
+        if (!File.Exists(paramPath))
+            throw new FileNotFoundException("layout_name.txt not found in CWD — pass it as a WorkItem argument.");
+        string layoutName = File.ReadAllText(paramPath).Trim();
+        if (string.IsNullOrEmpty(layoutName))
+            throw new InvalidOperationException("layout_name.txt is empty.");
+
+        ed.WriteMessage($"\n[LayerPdfExport] ExportSingleLayoutPdf — layout \"{layoutName}\".\n");
+
+        MakeAllLayersVisible(db);
+
+        var allLayouts = GetPaperLayoutNamesOrdered(db);
+        if (!allLayouts.Any(n => string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"Layout \"{layoutName}\" not found in DWG (have: {string.Join(", ", allLayouts)}).");
+
+        string pdfDir = Path.Combine(Directory.GetCurrentDirectory(), "_layoutpdf_out");
+        if (Directory.Exists(pdfDir))
+            Directory.Delete(pdfDir, true);
+        Directory.CreateDirectory(pdfDir);
+
+        ed.Command("._FILEDIA", "0");
+
+        try { ed.Command("._LAYTHW"); }
+        catch (System.Exception ex) { ed.WriteMessage($"\n[LayerPdfExport] Warning: LAYTHW failed: {ex.Message}\n"); }
+
+        // Clip model space to only entities within the target layout's viewport(s).
+        var vpExtents = GetViewportModelSpaceExtents(db, layoutName);
+        if (vpExtents.Count > 0)
+        {
+            var modelToErase = CollectModelSpaceEntitiesToErase(db, vpExtents);
+            EraseObjectIds(db, modelToErase);
+            ed.WriteMessage($"\n[LayerPdfExport] Erased {modelToErase.Count} model space entities outside viewport(s).\n");
+        }
+        else
+        {
+            ed.WriteMessage("\n[LayerPdfExport] No viewports found — model space kept intact.\n");
+        }
+
+        // Erase all entities inside non-target layouts (empties them before deletion).
+        var nonTargetLayouts = allLayouts
+            .Where(n => !string.Equals(n, layoutName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var layoutEntityMap = BuildLayoutEntityMap(db, nonTargetLayouts);
+        EraseObjectIds(db, layoutEntityMap.Values.SelectMany(x => x).ToList());
+
+        ActivatePaperLayout(db, layoutName);
+        ed.Command("._ZOOM", "E");
+
+        ClearViewportLayerFreezes(ed);
+
+        int deleted = 0;
+        foreach (string nonTarget in nonTargetLayouts)
+        {
+            try
+            {
+                LayoutManager.Current.DeleteLayout(nonTarget);
+                deleted++;
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage($"\n[LayerPdfExport] Warning: could not delete layout \"{nonTarget}\": {ex.Message}\n");
+            }
+        }
+        ed.WriteMessage($"\n[LayerPdfExport] Deleted {deleted}/{nonTargetLayouts.Count} non-target layout(s).\n");
+
+        string safe = SanitizeFileName(layoutName);
+        string pdfPath = Path.GetFullPath(Path.Combine(pdfDir, $"{safe}.pdf"));
+        if (File.Exists(pdfPath))
+            File.Delete(pdfPath);
+        CommandExportPdf(ed, true, pdfPath);
+
+        if (!File.Exists(pdfPath))
+            throw new InvalidOperationException($"-EXPORT PDF did not produce {pdfPath}");
+        ed.WriteMessage($"\n[LayerPdfExport] Layout \"{layoutName}\" -> {pdfPath}\n");
+
+        string zipPath = Path.Combine(Directory.GetCurrentDirectory(), "layout_pdfs.zip");
+        if (File.Exists(zipPath))
+            File.Delete(zipPath);
+        ZipFile.CreateFromDirectory(pdfDir, zipPath);
+        ed.WriteMessage($"\n[LayerPdfExport] Wrote {zipPath}\n");
+    }
+
+    /// <summary>
     /// Lightweight variant: one DWG per layout via <see cref="ExportLayoutViaWblock"/> (paperspace
     /// entities only, no model space). Zipped to <c>layout_dwgs.zip</c>.
     /// </summary>

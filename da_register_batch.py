@@ -46,6 +46,7 @@ ACTIVITY_ID = "LayerPdfExportActivity"
 LAYOUT_DWG_ACTIVITY_ID = "LayoutDwgSplitActivity"
 LIST_LAYOUTS_ACTIVITY_ID = "ListLayoutNamesActivity"
 SINGLE_LAYOUT_DWG_ACTIVITY_ID = "SingleLayoutDwgActivity"
+SINGLE_LAYOUT_PDF_ACTIVITY_ID = "SingleLayoutPdfActivity"
 BUNDLE_ALIAS = "prod"
 ACTIVITY_ALIAS = "prod"
 
@@ -146,6 +147,10 @@ def qualified_list_layouts_activity(nickname: str) -> str:
 
 def qualified_single_layout_dwg_activity(nickname: str) -> str:
     return f"{nickname}.{SINGLE_LAYOUT_DWG_ACTIVITY_ID}+{ACTIVITY_ALIAS}"
+
+
+def qualified_single_layout_pdf_activity(nickname: str) -> str:
+    return f"{nickname}.{SINGLE_LAYOUT_PDF_ACTIVITY_ID}+{ACTIVITY_ALIAS}"
 
 
 def activity_body(engine: str, nickname: str) -> dict[str, Any]:
@@ -307,6 +312,51 @@ def activity_body_single_layout_dwg(engine: str, nickname: str) -> dict[str, Any
                 "description": "layout_dwgs.zip (one DWG)",
                 "required": True,
                 "localName": "layout_dwgs.zip",
+            },
+        },
+        "engine": engine,
+        "appbundles": [qualified_appbundle(nickname)],
+    }
+
+
+def activity_body_single_layout_pdf(engine: str, nickname: str) -> dict[str, Any]:
+    cmd = (
+        '$(engine.path)\\accoreconsole.exe /al "$(appbundles[LayerPdfExport].path)" '
+        '/i "$(args[HostDwg].path)" '
+        '/s "$(appbundles[LayerPdfExport].path)\\Contents\\run_single_layout_pdf.scr"'
+    )
+    return {
+        "id": SINGLE_LAYOUT_PDF_ACTIVITY_ID,
+        "commandLine": [cmd],
+        "parameters": {
+            "HostDwg": {
+                "verb": "get",
+                "description": "Input DWG",
+                "required": True,
+            },
+            "PluginDll": {
+                "verb": "get",
+                "description": "LayerPdfExport.dll",
+                "required": True,
+                "localName": "LayerPdfExport.dll",
+            },
+            "PluginDeps": {
+                "verb": "get",
+                "description": "LayerPdfExport.deps.json",
+                "required": True,
+                "localName": "LayerPdfExport.deps.json",
+            },
+            "LayoutName": {
+                "verb": "get",
+                "description": "layout_name.txt — single line with layout tab name",
+                "required": True,
+                "localName": "layout_name.txt",
+            },
+            "ResultZip": {
+                "verb": "put",
+                "description": "layout_pdfs.zip (one PDF)",
+                "required": True,
+                "localName": "layout_pdfs.zip",
             },
         },
         "engine": engine,
@@ -519,6 +569,7 @@ def main() -> int:
     LOG.info("Qualified layout-DWG Activity id: %s", qualified_layout_dwg_activity(nickname))
     LOG.info("Qualified list-layouts Activity id: %s", qualified_list_layouts_activity(nickname))
     LOG.info("Qualified single-layout-DWG Activity id: %s", qualified_single_layout_dwg_activity(nickname))
+    LOG.info("Qualified single-layout-PDF Activity id: %s", qualified_single_layout_pdf_activity(nickname))
 
     if args.introspect:
         print(json.dumps(
@@ -530,6 +581,7 @@ def main() -> int:
                 "layout_dwg_activity_id": qualified_layout_dwg_activity(nickname),
                 "list_layouts_activity_id": qualified_list_layouts_activity(nickname),
                 "single_layout_dwg_activity_id": qualified_single_layout_dwg_activity(nickname),
+                "single_layout_pdf_activity_id": qualified_single_layout_pdf_activity(nickname),
             },
             indent=2,
         ))
@@ -553,6 +605,10 @@ def main() -> int:
             slver = ensure_activity_from_body(token, args.region, body_single)
             ensure_activity_alias_for(token, args.region, SINGLE_LAYOUT_DWG_ACTIVITY_ID, slver)
             out["single_layout_dwg_activity_id"] = qualified_single_layout_dwg_activity(nickname)
+            body_single_pdf = activity_body_single_layout_pdf(engine, nickname)
+            slpver = ensure_activity_from_body(token, args.region, body_single_pdf)
+            ensure_activity_alias_for(token, args.region, SINGLE_LAYOUT_PDF_ACTIVITY_ID, slpver)
+            out["single_layout_pdf_activity_id"] = qualified_single_layout_pdf_activity(nickname)
         print(json.dumps(out, indent=2))
         return 0
 
@@ -585,6 +641,10 @@ def main() -> int:
         slver = ensure_activity_from_body(token, args.region, body_single)
         ensure_activity_alias_for(token, args.region, SINGLE_LAYOUT_DWG_ACTIVITY_ID, slver)
         out["single_layout_dwg_activity_id"] = qualified_single_layout_dwg_activity(nickname)
+        body_single_pdf = activity_body_single_layout_pdf(engine, nickname)
+        slpver = ensure_activity_from_body(token, args.region, body_single_pdf)
+        ensure_activity_alias_for(token, args.region, SINGLE_LAYOUT_PDF_ACTIVITY_ID, slpver)
+        out["single_layout_pdf_activity_id"] = qualified_single_layout_pdf_activity(nickname)
 
     print(json.dumps(out, indent=2))
     return 0

@@ -371,6 +371,12 @@ public class Commands
 
         ed.Command("._FILEDIA", "0");
 
+        // Thaw all globally-frozen layers so entities on them are visible and selectable
+        // in the output DWG.  Using the LAYTHW command (not the IsFrozen API) to let
+        // AutoCAD handle any required regen gracefully.
+        try { ed.Command("._LAYTHW"); }
+        catch (System.Exception ex) { ed.WriteMessage($"\n[LayerPdfExport] Warning: LAYTHW failed: {ex.Message}\n"); }
+
         // Clip model space (viewport extents must be read before any layouts are deleted).
         var vpExtents = GetViewportModelSpaceExtents(db, layoutName);
         if (vpExtents.Count > 0)
